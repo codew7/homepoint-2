@@ -1,0 +1,2343 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Fuera de los buscadores: noindex impide que Google indexe la pagina y
+     nofollow que siga sus enlaces. Debe quedar rastreable en robots.txt,
+     porque si se bloquea el crawleo Google nunca lee esta etiqueta. -->
+<meta name="robots" content="noindex, nofollow">
+<meta name="googlebot" content="noindex, nofollow">
+<title>Buscar pedido — Homepoint</title>
+<link rel="icon" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+<!-- Firebase Auth Check -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="config.js"></script>
+<!-- QZ Tray: impresión ESC-POS del ticket (igual que historialRecientes.html) -->
+<script src="https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js"></script>
+<script>
+  if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+  }
+  const db = firebase.database();
+
+  // La app no toca la base hasta que hay sesion: si el usuario no esta
+  // logueado se lo manda al login sin haber gastado una sola consulta.
+  let _resolverSesion;
+  const sesionLista = new Promise(function(r){ _resolverSesion = r; });
+
+  firebase.auth().onAuthStateChanged(function(user) {
+    if (!user) {
+      window.location.href = 'login.html?redirect=' +
+        encodeURIComponent(window.location.pathname + window.location.search);
+      return;
+    }
+    _resolverSesion(user);
+  });
+</script>
+<!-- Fin Firebase Auth Check -->
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+/* ══════════════════════════════════════════════════════════════════
+   BUSCADOR DE PEDIDOS — panel de instrumentos
+   Estética: archivo administrativo. Papel cálido, tinta densa,
+   un único acento bermellón, numerales monoespaciados tabulares.
+   ══════════════════════════════════════════════════════════════════ */
+
+:root{
+  --paper:   #EFEEE8;
+  --surface: #FBFAF7;
+  --raised:  #FFFFFF;
+  --ink:     #15160F;
+  --ink-2:   #3D3E33;
+  --muted:   #77756A;
+  --faint:   #A5A296;
+  --line:    #DCD9CE;
+  --line-2:  #E9E7DF;
+  --accent:  #4D7C0F;
+  --accent-w:#EDF6DA;
+  --on-accent:#FFFFFF;
+  --ok:      #1F6A4A;
+  --ok-w:    #E7F1EB;
+  --warn:    #8A5A06;
+  --warn-w:  #F7EEDC;
+  --danger:  #A32218;
+  --sel:     #FFF6D6;
+
+  --r-sm: 4px;
+  --r:    7px;
+  --r-lg: 12px;
+
+  --shadow-1: 0 1px 2px rgba(21,22,15,.06), 0 1px 1px rgba(21,22,15,.04);
+  --shadow-2: 0 2px 6px rgba(21,22,15,.07), 0 8px 24px rgba(21,22,15,.07);
+  --shadow-3: -1px 0 0 var(--line), -18px 0 48px rgba(21,22,15,.14), -60px 0 120px rgba(21,22,15,.10);
+
+  --ui: 'Archivo', ui-sans-serif, system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --bar-h: 34px;
+  color-scheme: light;
+}
+
+*,*::before,*::after{ box-sizing:border-box; }
+
+html,body{ height:100%; }
+body{
+  margin:0;
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--ui);
+  font-size:14px;
+  line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  overflow:hidden;
+}
+
+/* Textura de papel: una trama diagonal muy tenue que da materia sin coste */
+body::before{
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background-image:
+    repeating-linear-gradient(45deg, rgba(21,22,15,.014) 0 1px, transparent 1px 7px);
+}
+
+button,input,select{ font:inherit; color:inherit; }
+button{ cursor:pointer; background:none; border:none; padding:0; }
+
+::selection{ background:var(--sel); color:var(--ink); }
+
+/* Scrollbars discretas */
+*::-webkit-scrollbar{ width:11px; height:11px; }
+*::-webkit-scrollbar-track{ background:transparent; }
+*::-webkit-scrollbar-thumb{ background:var(--line); border-radius:99px; border:3px solid transparent; background-clip:content-box; }
+*::-webkit-scrollbar-thumb:hover{ background:var(--faint); background-clip:content-box; border:3px solid transparent; }
+
+/* ───────────────────────── Estructura ───────────────────────── */
+
+.app{
+  position:relative; z-index:1;
+  height:100dvh;
+  display:grid;
+  grid-template-rows:auto 1fr var(--bar-h);
+}
+
+/* ───────────────────────── Cabecera / mando ───────────────────────── */
+
+header.mando{
+  background:color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter:blur(18px) saturate(170%);
+  -webkit-backdrop-filter:blur(18px) saturate(170%);
+  border-bottom:1px solid var(--line);
+  padding:14px 20px 12px;
+}
+
+.titulo-fila{
+  display:flex; align-items:baseline; gap:12px; margin-bottom:12px; flex-wrap:wrap;
+}
+.marca{
+  font-weight:700; font-size:17px; letter-spacing:-.035em; margin:0;
+}
+.marca .punto{ color:var(--accent); }
+.subtitulo{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--muted); font-weight:500;
+}
+.titulo-fila .crece{ flex:1 1 auto; }
+
+/* [hidden] no basta: el display de la clase le gana al del navegador */
+.estado-conexion[hidden]{ display:none; }
+.estado-conexion{
+  display:inline-flex; align-items:center; gap:6px;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--muted);
+}
+.pip{ width:6px; height:6px; border-radius:99px; background:var(--faint); }
+.pip.on{ background:var(--ok); box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 20%,transparent); }
+.btn-salir{
+  font-family:var(--mono); font-size:9.5px; font-weight:600;
+  letter-spacing:.09em; text-transform:uppercase;
+  padding:3px 8px; border-radius:99px; margin-left:2px;
+  border:1px solid var(--line); background:var(--surface); color:var(--muted);
+  transition:background .14s ease, color .14s ease, border-color .14s ease, transform .12s ease;
+}
+.btn-salir:hover{ border-color:var(--danger); color:var(--danger); }
+.btn-salir:active{ transform:scale(.93); }
+
+.pip.err{ background:var(--danger); box-shadow:0 0 0 3px color-mix(in srgb,var(--danger) 20%,transparent); }
+
+/* Campo de búsqueda protagonista */
+.buscador{
+  display:flex; align-items:stretch; gap:0;
+  background:var(--raised);
+  border:1px solid var(--line);
+  border-radius:var(--r-lg);
+  box-shadow:var(--shadow-1);
+  transition:border-color .16s ease, box-shadow .16s ease;
+  overflow:hidden;
+}
+.buscador:focus-within{
+  border-color:var(--accent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 14%,transparent), var(--shadow-1);
+}
+.buscador .lupa{
+  display:grid; place-items:center; padding-left:14px; color:var(--faint); flex:0 0 auto;
+}
+#q{
+  flex:1 1 auto; min-width:0;
+  border:none; outline:none; background:transparent;
+  padding:13px 12px;
+  font-size:16px; font-weight:500; letter-spacing:-.012em;
+}
+#q::placeholder{ color:var(--faint); font-weight:400; letter-spacing:0; }
+
+.campos{
+  display:flex; align-items:center; gap:3px; flex-wrap:wrap; margin-top:10px;
+}
+.campo-tgl{
+  font-family:var(--mono); font-size:10.5px; font-weight:500;
+  letter-spacing:.07em; text-transform:uppercase;
+  padding:5px 11px; border-radius:99px; color:var(--muted);
+  border:1px solid var(--line); background:var(--surface);
+  transition:background .14s ease, color .14s ease, border-color .14s ease, transform .12s ease;
+  white-space:nowrap;
+}
+.campo-tgl:hover{ border-color:var(--faint); color:var(--ink-2); }
+.campo-tgl[aria-pressed="true"]{ background:var(--accent-w); color:var(--accent); border-color:color-mix(in srgb,var(--accent) 35%,transparent); }
+.campo-tgl:active{ transform:scale(.95); }
+
+.buscador .btn-buscar{ margin:5px; border-radius:9px; flex:0 0 auto; }
+
+.btn-limpiar{
+  flex:0 0 auto; padding:0 12px; color:var(--faint); display:none; place-items:center;
+}
+.btn-limpiar.visible{ display:grid; }
+.btn-limpiar:hover{ color:var(--ink); }
+
+/* Fila de alcance temporal */
+.alcance{
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:11px;
+}
+.etiqueta-alcance{
+  font-family:var(--mono); font-size:10px; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--faint); font-weight:500;
+  margin-right:2px;
+}
+.chip{
+  font-size:12.5px; font-weight:500; letter-spacing:-.005em;
+  padding:5px 11px; border-radius:99px;
+  border:1px solid var(--line);
+  background:var(--surface); color:var(--ink-2);
+  transition:transform .12s ease, background .14s ease, border-color .14s ease, color .14s ease;
+}
+.chip:hover{ border-color:var(--faint); }
+.chip:active{ transform:scale(.96); }
+.chip[aria-pressed="true"]{
+  background:var(--ink); color:var(--paper); border-color:var(--ink);
+}
+/* La chip de la etapa que se está descargando late mientras dura */
+.chip.buscando{ animation:latido 1s ease-in-out infinite; border-color:var(--accent); color:var(--accent); }
+@keyframes latido{ 50%{ background:var(--accent-w); } }
+.sep-v{ width:1px; height:20px; background:var(--line); margin:0 3px; }
+
+.fecha-campo{
+  display:inline-flex; align-items:center; gap:5px;
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r); padding:3px 8px;
+}
+.fecha-campo span{
+  font-family:var(--mono); font-size:10px; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--faint);
+}
+.fecha-campo input{
+  border:none; outline:none; background:transparent;
+  font-family:var(--mono); font-size:12.5px; font-weight:500;
+  padding:2px 0; width:118px;
+}
+.fecha-campo:focus-within{ border-color:var(--accent); }
+
+.btn-buscar{
+  display:inline-flex; align-items:center; gap:7px;
+  background:var(--accent); color:var(--on-accent);
+  padding:7px 16px; border-radius:99px;
+  font-size:13px; font-weight:600; letter-spacing:-.005em;
+  box-shadow:var(--shadow-1);
+  transition:transform .12s ease, filter .14s ease;
+}
+.btn-buscar:hover{ filter:brightness(1.07); }
+.btn-buscar:active{ transform:scale(.965); }
+.btn-buscar[disabled]{ opacity:.5; pointer-events:none; }
+.btn-buscar kbd{
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.05em;
+  background:rgba(255,255,255,.22); padding:1px 5px; border-radius:3px;
+}
+
+.btn-fantasma{
+  font-size:12.5px; font-weight:500; color:var(--muted);
+  padding:6px 10px; border-radius:var(--r);
+  transition:background .14s ease, color .14s ease;
+}
+.btn-fantasma:hover{ background:var(--line-2); color:var(--ink); }
+.btn-fantasma:active{ transform:scale(.97); }
+
+/* Filtros secundarios */
+.filtros-2{
+  display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-top:10px;
+  padding-top:10px; border-top:1px dashed var(--line);
+}
+.select-mini{
+  appearance:none; -webkit-appearance:none;
+  background:var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2377756A' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 9px center;
+  border:1px solid var(--line); border-radius:var(--r);
+  padding:5px 26px 5px 9px;
+  font-size:12.5px; font-weight:500; color:var(--ink-2);
+  outline:none; max-width:190px;
+  transition:border-color .14s ease;
+}
+.select-mini:focus{ border-color:var(--accent); }
+.select-mini.activo{ border-color:var(--accent); color:var(--accent); background-color:var(--accent-w); }
+
+/* ───────────────────────── Resultados ───────────────────────── */
+
+main.resultados{
+  overflow:auto; position:relative;
+  scroll-padding-top:34px;
+}
+
+.aviso{
+  margin:14px 20px 0; padding:10px 14px;
+  border:1px solid var(--line); border-left:3px solid var(--warn);
+  background:var(--warn-w); border-radius:var(--r);
+  font-size:12.5px; color:var(--ink-2);
+  display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+}
+.aviso.info{ border-left-color:var(--accent); background:var(--surface); }
+.aviso .rango-fechas{ font-family:var(--mono); font-size:11px; color:var(--muted); }
+.btn-ampliar{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:6px 12px; border-radius:99px;
+  border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);
+  background:var(--accent-w); color:var(--accent);
+  font-size:12.5px; font-weight:600;
+  transition:transform .12s ease, filter .14s ease;
+}
+.btn-ampliar:hover{ filter:brightness(.97); }
+.btn-ampliar:active{ transform:scale(.97); }
+.aviso.err{ border-left-color:var(--danger); background:color-mix(in srgb,var(--danger) 9%,transparent); }
+.aviso b{ font-weight:600; }
+.aviso .crece{ flex:1 1 auto; }
+
+/* Tabla */
+.tabla-marco{ padding:14px 20px 28px; }
+table.pedidos{
+  width:100%; border-collapse:separate; border-spacing:0;
+  background:var(--surface);
+  border:1px solid var(--line); border-radius:var(--r);
+  overflow:hidden;
+}
+table.pedidos thead th{
+  position:sticky; top:0; z-index:3;
+  background:color-mix(in srgb, var(--surface) 90%, transparent);
+  backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  text-align:left; padding:8px 12px;
+  font-family:var(--mono); font-size:9.5px; font-weight:600;
+  letter-spacing:.11em; text-transform:uppercase; color:var(--muted);
+  border-bottom:1px solid var(--line);
+  white-space:nowrap; user-select:none; cursor:pointer;
+}
+table.pedidos thead th:hover{ color:var(--ink); }
+table.pedidos thead th .orden{ color:var(--accent); font-size:8px; margin-left:3px; }
+table.pedidos tbody td{
+  padding:9px 12px; border-bottom:1px solid var(--line-2);
+  vertical-align:top;
+}
+table.pedidos tbody tr:last-child td{ border-bottom:none; }
+table.pedidos tbody tr{
+  cursor:pointer;
+  transition:background .1s ease;
+}
+table.pedidos tbody tr:hover{ background:var(--line-2); }
+table.pedidos tbody tr[aria-selected="true"]{
+  background:var(--accent-w);
+  box-shadow:inset 3px 0 0 var(--accent);
+}
+.num{ font-family:var(--mono); font-variant-numeric:tabular-nums; }
+.c-fecha{ white-space:nowrap; font-size:12px; }
+.c-fecha .hora{ color:var(--faint); font-size:11px; }
+.c-cliente{ font-weight:500; letter-spacing:-.008em; min-width:150px; }
+.c-cliente .sin{ color:var(--faint); font-weight:400; font-style:italic; }
+.c-nota{ color:var(--muted); font-size:12.5px; max-width:280px; }
+.c-total{ text-align:right; white-space:nowrap; font-weight:600; font-size:13px; }
+.c-id{ font-size:11px; color:var(--faint); white-space:nowrap; }
+mark{ background:var(--sel); color:inherit; border-radius:2px; padding:0 1px; box-shadow:0 1px 0 color-mix(in srgb,var(--warn) 40%,transparent); }
+
+.badge{
+  display:inline-block; padding:2px 7px; border-radius:99px;
+  font-family:var(--mono); font-size:9.5px; font-weight:600;
+  letter-spacing:.06em; text-transform:uppercase; white-space:nowrap;
+  border:1px solid transparent;
+}
+.badge.ok{ background:var(--ok-w); color:var(--ok); border-color:color-mix(in srgb,var(--ok) 25%,transparent); }
+.badge.warn{ background:var(--warn-w); color:var(--warn); border-color:color-mix(in srgb,var(--warn) 25%,transparent); }
+.badge.bad{ background:color-mix(in srgb,var(--danger) 10%,transparent); color:var(--danger); border-color:color-mix(in srgb,var(--danger) 25%,transparent); }
+.badge.neutro{ background:var(--line-2); color:var(--muted); border-color:var(--line); }
+
+/* Estados vacíos */
+.vacio{
+  padding:70px 24px; text-align:center; color:var(--muted);
+}
+.vacio .glifo{
+  font-family:var(--mono); font-size:34px; color:var(--line);
+  letter-spacing:-.06em; margin-bottom:10px;
+}
+.vacio h3{ margin:0 0 6px; font-size:16px; font-weight:600; letter-spacing:-.02em; color:var(--ink); }
+.vacio p{ margin:0 auto 16px; max-width:460px; font-size:13px; line-height:1.55; }
+.vacio .nota-chica{ display:block; margin-top:10px; font-family:var(--mono); font-size:10.5px; color:var(--faint); }
+
+/* Escalera de etapas: muestra de un vistazo hasta dónde se amplía la búsqueda */
+.pasos{
+  display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:center;
+  margin:4px auto 18px; font-family:var(--mono); font-size:11px; color:var(--muted);
+}
+.pasos span{ padding:3px 9px; border-radius:99px; border:1px solid var(--line); background:var(--surface); }
+.pasos span:first-child{ border-color:var(--accent); color:var(--accent); background:var(--accent-w); }
+.pasos i{ font-style:normal; color:var(--faint); }
+
+/* Paginación */
+.paginacion{
+  display:flex; align-items:center; justify-content:center; gap:5px;
+  padding:16px 0 4px; flex-wrap:wrap;
+}
+.pg{
+  min-width:30px; height:30px; padding:0 8px; border-radius:var(--r-sm);
+  border:1px solid transparent;
+  font-family:var(--mono); font-size:12px; font-variant-numeric:tabular-nums;
+  color:var(--muted);
+  transition:background .12s ease, color .12s ease;
+}
+.pg:hover{ background:var(--line-2); color:var(--ink); }
+.pg[aria-current="true"]{ background:var(--ink); color:var(--paper); font-weight:600; }
+.pg[disabled]{ opacity:.3; pointer-events:none; }
+.pg-info{ font-family:var(--mono); font-size:11px; color:var(--faint); padding:0 8px; }
+
+/* ───────────────────────── Barra de estado ───────────────────────── */
+
+footer.barra{
+  display:flex; align-items:center; gap:0;
+  background:var(--surface); border-top:1px solid var(--line);
+  padding:0 14px; overflow-x:auto; white-space:nowrap;
+}
+footer.barra .m{
+  display:inline-flex; align-items:baseline; gap:5px;
+  padding:0 12px; height:100%; border-right:1px solid var(--line-2);
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.04em;
+}
+footer.barra .m:last-of-type{ border-right:none; }
+footer.barra .m i{ font-style:normal; color:var(--faint); text-transform:uppercase; letter-spacing:.09em; font-size:9.5px; }
+footer.barra .m b{ font-weight:600; font-variant-numeric:tabular-nums; }
+footer.barra .crece{ flex:1 1 auto; }
+footer.barra .m.destacado b{ color:var(--accent); }
+
+/* Barra de progreso de la descarga */
+.progreso{
+  position:absolute; left:0; right:0; top:0; height:2px;
+  background:transparent; overflow:hidden; z-index:20; pointer-events:none;
+}
+.progreso::after{
+  content:''; position:absolute; inset:0;
+  background:linear-gradient(90deg, transparent, var(--accent), transparent);
+  transform:translateX(-100%);
+}
+.progreso.activa::after{ animation:barrido 1.05s cubic-bezier(.4,0,.2,1) infinite; }
+@keyframes barrido{ to{ transform:translateX(100%); } }
+
+/* ───────────────────────── Hoja de detalle ───────────────────────── */
+
+.scrim{
+  position:fixed; inset:0; z-index:40;
+  background:rgba(21,22,15,.34);
+  backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px);
+  opacity:0; pointer-events:none;
+}
+.scrim.viva{ pointer-events:auto; }
+
+.hoja{
+  position:fixed; top:0; right:0; bottom:0; z-index:41;
+  width:min(620px, 100vw);
+  background:var(--raised);
+  box-shadow:var(--shadow-3);
+  display:flex; flex-direction:column;
+  transform:translate3d(100%,0,0);
+  visibility:hidden;
+  will-change:transform;
+}
+.hoja.viva{ visibility:visible; }
+
+.hoja-asa{
+  position:absolute; left:0; top:0; bottom:0; width:16px;
+  cursor:grab; touch-action:none; z-index:2;
+  display:grid; place-items:center;
+}
+.hoja-asa::after{
+  content:''; width:3px; height:40px; border-radius:99px;
+  background:var(--line); transition:background .16s ease, height .16s ease;
+}
+.hoja-asa:hover::after{ background:var(--faint); height:64px; }
+.hoja-asa:active{ cursor:grabbing; }
+
+.hoja-cab{
+  padding:16px 18px 13px 26px;
+  border-bottom:1px solid var(--line);
+  background:color-mix(in srgb,var(--raised) 86%, transparent);
+  backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+  touch-action:none;
+  flex:0 0 auto;
+}
+.hoja-cab .fila1{ display:flex; align-items:flex-start; gap:12px; }
+.hoja-cab h2{
+  margin:0; font-size:19px; font-weight:700; letter-spacing:-.03em;
+  line-height:1.2; flex:1 1 auto; min-width:0;
+  overflow-wrap:anywhere;
+}
+.hoja-cab h2 .sin{ color:var(--faint); font-weight:500; font-style:italic; }
+.hoja-cab .idp{
+  font-family:var(--mono); font-size:11px; color:var(--muted);
+  margin-top:3px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+}
+.hoja-cab .badges{ display:flex; gap:5px; flex-wrap:wrap; margin-top:9px; }
+.cerrar{
+  flex:0 0 auto; width:30px; height:30px; border-radius:99px;
+  display:grid; place-items:center; color:var(--muted);
+  transition:background .14s ease, color .14s ease;
+}
+.cerrar:hover{ background:var(--line-2); color:var(--ink); }
+.cerrar:active{ transform:scale(.92); }
+
+.hoja-cuerpo{
+  flex:1 1 auto; overflow:auto; padding:0 18px 90px 26px;
+  overscroll-behavior:contain;
+}
+
+.bloque{ margin-top:20px; }
+.bloque > h3{
+  margin:0 0 9px; font-family:var(--mono);
+  font-size:9.5px; font-weight:600; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--accent);
+  display:flex; align-items:center; gap:8px;
+}
+.bloque > h3::after{ content:''; flex:1 1 auto; height:1px; background:var(--line); }
+
+dl.datos{ margin:0; display:grid; grid-template-columns:minmax(110px,auto) 1fr; gap:0; }
+dl.datos dt{
+  padding:6px 14px 6px 0; border-bottom:1px solid var(--line-2);
+  font-size:12px; color:var(--muted);
+}
+dl.datos dd{
+  margin:0; padding:6px 0; border-bottom:1px solid var(--line-2);
+  font-size:13px; font-weight:500; overflow-wrap:anywhere;
+}
+dl.datos dd.mono{ font-family:var(--mono); font-size:12.5px; font-variant-numeric:tabular-nums; }
+dl.datos dd .sin{ color:var(--faint); font-weight:400; }
+
+table.items{
+  width:100%; border-collapse:separate; border-spacing:0;
+  border:1px solid var(--line); border-radius:var(--r); overflow:hidden;
+  font-size:12.5px;
+}
+table.items th{
+  text-align:left; padding:7px 9px; background:var(--surface);
+  font-family:var(--mono); font-size:9px; font-weight:600;
+  letter-spacing:.09em; text-transform:uppercase; color:var(--muted);
+  border-bottom:1px solid var(--line);
+}
+table.items td{ padding:7px 9px; border-bottom:1px solid var(--line-2); vertical-align:top; }
+table.items tr:last-child td{ border-bottom:none; }
+table.items .r{ text-align:right; white-space:nowrap; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+table.items .cod{ font-family:var(--mono); font-size:11px; color:var(--muted); white-space:nowrap; }
+table.items .cat{ display:block; font-size:10.5px; color:var(--faint); margin-top:1px; }
+table.items tr.total td{ background:var(--surface); font-weight:700; border-top:1px solid var(--line); }
+table.items tr.sel td{ background:var(--sel); }
+table.items tr.pega td{ background:var(--accent-w); box-shadow:inset 3px 0 0 var(--accent); }
+table.items tr.pega td:first-child{ color:var(--accent) !important; font-weight:600; }
+
+.cuenta{
+  border:1px solid var(--line); border-radius:var(--r);
+  overflow:hidden; background:var(--surface);
+}
+.cuenta .ln{
+  display:flex; justify-content:space-between; gap:12px;
+  padding:7px 12px; border-bottom:1px solid var(--line-2);
+  font-size:13px;
+}
+.cuenta .ln:last-child{ border-bottom:none; }
+.cuenta .ln span:first-child{ color:var(--muted); }
+.cuenta .ln span:last-child{ font-family:var(--mono); font-weight:500; font-variant-numeric:tabular-nums; }
+.cuenta .ln.resta span:last-child{ color:var(--danger); }
+.cuenta .ln.grande{
+  background:var(--ink); color:var(--paper);
+  padding:11px 12px; font-size:15px; font-weight:700;
+}
+.cuenta .ln.grande span:first-child{ color:color-mix(in srgb,var(--paper) 70%, transparent); font-weight:600; font-size:12px; letter-spacing:.04em; text-transform:uppercase; font-family:var(--mono); align-self:center; }
+.cuenta .ln.grande span:last-child{ font-weight:700; letter-spacing:-.02em; }
+
+.nota-caja{
+  border:1px solid var(--line); border-left:3px solid var(--warn);
+  background:var(--warn-w); border-radius:var(--r);
+  padding:10px 13px; font-size:13px; line-height:1.55;
+  white-space:pre-wrap; overflow-wrap:anywhere;
+}
+.nota-caja .cuando{
+  display:block; margin-top:6px; font-family:var(--mono);
+  font-size:10px; letter-spacing:.07em; text-transform:uppercase; color:var(--warn);
+}
+
+.hoja-pie{
+  position:absolute; left:16px; right:0; bottom:0;
+  display:flex; gap:8px; padding:12px 18px;
+  background:color-mix(in srgb,var(--raised) 85%, transparent);
+  backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+  border-top:1px solid var(--line);
+}
+.hoja-pie .crece{ flex:1 1 auto; }
+.btn-hoja{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:7px 13px; border-radius:var(--r);
+  border:1px solid var(--line); background:var(--surface);
+  font-size:12.5px; font-weight:500; color:var(--ink-2);
+  transition:transform .12s ease, background .14s ease, border-color .14s ease;
+  text-decoration:none;
+}
+.btn-hoja:hover{ background:var(--line-2); border-color:var(--faint); }
+.btn-hoja:active{ transform:scale(.97); }
+.btn-hoja.primario{ background:var(--ink); color:var(--paper); border-color:var(--ink); }
+.btn-hoja.primario:hover{ filter:brightness(1.18); }
+
+/* Aparición de la tabla: un único fundido, barato, sin escalonar filas */
+.aparece{ animation:aparece .22s cubic-bezier(.22,.61,.36,1) both; }
+@keyframes aparece{ from{ opacity:0; transform:translateY(4px); } to{ opacity:1; transform:none; } }
+
+/* ───────────────────────── Accesibilidad / preferencias ───────────────────────── */
+
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{
+    animation-duration:.01ms !important; animation-iteration-count:1 !important;
+    transition-duration:.01ms !important;
+  }
+  .progreso.activa::after{ transform:none; opacity:.6; }
+}
+@media (prefers-reduced-transparency: reduce){
+  header.mando, .hoja-cab, .hoja-pie, table.pedidos thead th{
+    background:var(--surface); backdrop-filter:none; -webkit-backdrop-filter:none;
+  }
+  .scrim{ backdrop-filter:none; -webkit-backdrop-filter:none; background:rgba(21,22,15,.5); }
+}
+@media (prefers-contrast: more){
+  :root{ --line:#9A978A; --line-2:#B8B5A8; --muted:#4A483E; --faint:#6A685C; }
+}
+
+:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:3px; }
+
+/* ───────────────────────── Responsive ───────────────────────── */
+
+@media (max-width: 820px){
+  header.mando{ padding:12px 14px 10px; }
+  .tabla-marco{ padding:12px 14px 24px; }
+  .aviso{ margin-left:14px; margin-right:14px; }
+  .col-opc{ display:none; }
+  .hoja{ width:100vw; }
+  #q{ font-size:16px; }
+}
+@media (max-width: 560px){
+  .col-opc2{ display:none; }
+  .marca{ font-size:15px; }
+}
+</style>
+</head>
+
+<body>
+<div class="app">
+
+  <!-- ══════════════ MANDO ══════════════ -->
+  <header class="mando">
+    <div class="titulo-fila">
+      <h1 class="marca">Buscar pedido<span class="punto">.</span></h1>
+      <span class="subtitulo">Homepoint · Archivo</span>
+      <span class="crece"></span>
+      <span class="estado-conexion" id="cuenta" hidden>
+        <span id="cuentaMail"></span>
+        <button class="btn-salir" id="btnSalir" title="Cerrar sesion">Salir</button>
+      </span>
+      <span class="estado-conexion"><span class="pip" id="pip"></span><span id="pipTxt">conectando</span></span>
+    </div>
+
+    <div class="buscador">
+      <span class="lupa" aria-hidden="true">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>
+      </span>
+      <input id="q" type="search" autocomplete="off" spellcheck="false"
+             placeholder="Cliente, nota, artículo, código o ID del pedido…"
+             aria-label="Buscar por nombre, nota, artículo, código o ID">
+      <button class="btn-limpiar" id="btnLimpiarQ" title="Limpiar (Esc)" aria-label="Limpiar búsqueda">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+      <button class="btn-buscar" id="btnBuscar">Buscar <kbd>↵</kbd></button>
+    </div>
+
+    <div class="campos" role="group" aria-label="Campos en los que buscar">
+      <span class="etiqueta-alcance">Buscar en</span>
+      <button class="campo-tgl" id="tglNombre" aria-pressed="true">Nombre</button>
+      <button class="campo-tgl" id="tglNota" aria-pressed="true">Nota</button>
+      <button class="campo-tgl" id="tglArticulo" aria-pressed="false">Artículo</button>
+      <button class="campo-tgl" id="tglCodigo" aria-pressed="false">Código</button>
+    </div>
+
+    <div class="alcance">
+      <span class="etiqueta-alcance">Período</span>
+      <button class="chip" data-dias="7">7 días</button>
+      <button class="chip" data-dias="30">30 días</button>
+      <button class="chip" data-dias="60">60 días</button>
+      <button class="chip" data-dias="90">90 días</button>
+      <span class="sep-v"></span>
+      <label class="fecha-campo"><span>Desde</span><input type="date" id="desde"></label>
+      <label class="fecha-campo"><span>Hasta</span><input type="date" id="hasta"></label>
+      <span class="crece" style="flex:1 1 auto"></span>
+      <button class="btn-fantasma" id="btnCache" title="Espacio ocupado por el caché local">Caché…</button>
+    </div>
+
+    <div class="filtros-2">
+      <select class="select-mini" id="fEntrega" aria-label="Filtrar por entrega"><option value="">Entrega: todas</option></select>
+      <select class="select-mini" id="fMedio" aria-label="Filtrar por medio de pago"><option value="">Medio de pago: todos</option></select>
+      <select class="select-mini" id="fVendedor" aria-label="Filtrar por vendedor"><option value="">Vendedor: todos</option></select>
+      <button class="btn-fantasma" id="btnResetFiltros">Quitar filtros</button>
+      <span class="crece" style="flex:1 1 auto"></span>
+      <button class="btn-fantasma" id="btnExportar">Exportar CSV</button>
+    </div>
+  </header>
+
+  <!-- ══════════════ RESULTADOS ══════════════ -->
+  <main class="resultados" id="main">
+    <div class="progreso" id="progreso"></div>
+    <div id="avisos"></div>
+    <div class="tabla-marco" id="marco"></div>
+  </main>
+
+  <!-- ══════════════ BARRA DE ESTADO ══════════════ -->
+  <footer class="barra">
+    <span class="m"><i>Resultados</i><b id="mResultados">0</b></span>
+    <span class="m"><i>En memoria</i><b id="mMemoria">0</b></span>
+    <span class="m destacado"><i>Descargado</i><b id="mBytes">0 KB</b></span>
+    <span class="m"><i>Consultas</i><b id="mReq">0</b></span>
+    <span class="m"><i>Días de caché</i><b id="mDias">0</b></span>
+    <span class="m"><i>Filtrado</i><b id="mMs">0 ms</b></span>
+    <span class="crece"></span>
+    <span class="m" id="mPista"><i>Atajos</i><b>/ buscar · ↑↓ mover · ↵ abrir · Esc cerrar</b></span>
+  </footer>
+</div>
+
+<!-- ══════════════ HOJA DE DETALLE ══════════════ -->
+<div class="scrim" id="scrim"></div>
+<aside class="hoja" id="hoja" role="dialog" aria-modal="true" aria-label="Detalle del pedido" tabindex="-1">
+  <div class="hoja-asa" id="asa" title="Arrastrar para cerrar"></div>
+  <div class="hoja-cab" id="hojaCab"></div>
+  <div class="hoja-cuerpo" id="hojaCuerpo"></div>
+  <div class="hoja-pie" id="hojaPie"></div>
+</aside>
+
+<script>
+"use strict";
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ESTRATEGIA DE CONSUMO DE FIREBASE
+   ─────────────────────────────────────────────────────────────────────────
+   El nodo `pedidos` es grande (≈160 KB por día). Nunca se descarga entero.
+   Cuatro mecanismos lo garantizan:
+
+   1. RECORTE EN EL SERVIDOR. Toda lectura usa un índice ya declarado en las
+      reglas (`fecha` y `timestamp`). El período se pide con
+      orderByChild('fecha').startAt(desde).endAt(hasta+''), así que el
+      servidor envía exclusivamente los pedidos de esas fechas.
+
+   2. CACHÉ PERSISTENTE POR DÍA (IndexedDB). Cada día se descarga como mucho
+      UNA vez en la vida del navegador. Al pedir un período se calcula qué
+      días faltan, se agrupan los faltantes en tramos contiguos y se lanza una
+      consulta por tramo. Volver a buscar sobre días ya traídos cuesta 0 bytes.
+      El día en curso se revalida con un TTL corto porque sigue cambiando.
+
+   3. BÚSQUEDA POR ETAPAS. Al abrir no se descarga nada. La primera consulta
+      trae los últimos 7 días; si el texto no aparece, se amplía sola a 30,
+      60 y 90 días, y desde ahí de a un mes por pedido del usuario. Cada etapa
+      baja sólo los días que le faltan a la anterior.
+
+   4. TEXTO 100 % LOCAL. Nombre y nota no están indexados en las reglas:
+      ordenar por ellos obligaría a Firebase a bajar el nodo completo. Por eso
+      el texto se filtra en memoria sobre el período ya traído, sin red.
+      Un ID de pedido se lee por ruta directa (`pedidos/<id>`): ~1 KB.
+
+   Se usa once() en vez de on(): ningún listener queda abierto consumiendo.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ───────────────────────── Firebase ───────────────────────── */
+// `db` y la guardia de sesion se arman en el <head> (bloque Firebase Auth
+// Check), igual que en el resto del panel.
+
+const pip = document.getElementById('pip');
+const pipTxt = document.getElementById('pipTxt');
+db.ref('.info/connected').on('value', s => {
+  const on = s.val() === true;
+  pip.className = 'pip' + (on ? ' on' : '');
+  pipTxt.textContent = on ? 'en línea' : 'sin conexión';
+});
+
+/* ───────────────────────── Métrica de la sesión ───────────────────────── */
+const metrica = { bytes: 0, req: 0, ms: 0, bytesPeriodo: 0, diasBajados: 0 };
+
+function fmtBytes(n){
+  if (n < 1024) return n + ' B';
+  if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+  return (n/1048576).toFixed(2) + ' MB';
+}
+function pintarMetrica(){
+  document.getElementById('mBytes').textContent = fmtBytes(metrica.bytes);
+  document.getElementById('mReq').textContent = metrica.req;
+  document.getElementById('mMs').textContent = metrica.ms.toFixed(0) + ' ms';
+  document.getElementById('mMemoria').textContent = memoria.size.toLocaleString('es-AR');
+  document.getElementById('mResultados').textContent = filtrados.length.toLocaleString('es-AR');
+  document.getElementById('mDias').textContent = diasEnCache.size;
+}
+
+/* ───────────────────────── IndexedDB: caché por día ───────────────────────── */
+
+const IDB_NOMBRE = 'homepoint-buscador';
+const IDB_VER = 1;
+let idb = null;
+
+function abrirIDB(){
+  return new Promise(res => {
+    let req;
+    try { req = indexedDB.open(IDB_NOMBRE, IDB_VER); }
+    catch(e){ return res(null); }
+    req.onupgradeneeded = () => {
+      const d = req.result;
+      if (!d.objectStoreNames.contains('pedidos')){
+        const st = d.createObjectStore('pedidos', { keyPath: 'id' });
+        st.createIndex('dia', 'dia', { unique:false });
+      }
+      if (!d.objectStoreNames.contains('dias')) d.createObjectStore('dias', { keyPath:'dia' });
+    };
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => res(null);           // sin IDB se sigue: caché sólo en memoria
+    req.onblocked = () => res(null);
+  });
+}
+
+function tx(stores, modo){
+  if (!idb) return null;
+  try { return idb.transaction(stores, modo); } catch(e){ return null; }
+}
+const prom = req => new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); });
+
+async function idbGuardarLote(registros, diasCompletos){
+  if (!idb || (!registros.length && !diasCompletos.length)) return;
+  const t = tx(['pedidos','dias'], 'readwrite');
+  if (!t) return;
+  const sp = t.objectStore('pedidos'), sd = t.objectStore('dias');
+  registros.forEach(r => { try{ sp.put(r); }catch(e){} });
+  diasCompletos.forEach(dia => { try{ sd.put({ dia, ts: Date.now() }); }catch(e){} });
+  return new Promise(res => { t.oncomplete = res; t.onerror = res; t.onabort = res; });
+}
+
+async function idbLeerRango(desde, hasta){
+  if (!idb) return [];
+  const t = tx(['pedidos'], 'readonly');
+  if (!t) return [];
+  const idx = t.objectStore('pedidos').index('dia');
+  try { return await prom(idx.getAll(IDBKeyRange.bound(desde, hasta))); }
+  catch(e){ return []; }
+}
+
+async function idbLeerDias(){
+  if (!idb) return [];
+  const t = tx(['dias'], 'readonly');
+  if (!t) return [];
+  try { return await prom(t.objectStore('dias').getAll()); } catch(e){ return []; }
+}
+
+async function idbVaciar(){
+  if (!idb) return;
+  const t = tx(['pedidos','dias'], 'readwrite');
+  if (!t) return;
+  t.objectStore('pedidos').clear();
+  t.objectStore('dias').clear();
+  return new Promise(res => { t.oncomplete = res; t.onerror = res; });
+}
+
+/* Días con descarga completa confirmada (dia → timestamp de la descarga) */
+const diasEnCache = new Map();
+const TTL_HOY = 60 * 1000;   // el día en curso se revalida cada minuto
+
+/* ───────────────────────── Estado en memoria ───────────────────────── */
+
+const memoria = new Map();    // id → registro normalizado
+let filtrados = [];           // resultado del filtro actual
+let pagina = 1;
+const POR_PAGINA = 60;
+let orden = { col:'fecha', dir:-1 };
+let seleccion = -1;           // índice dentro de la página visible
+let cargando = false;
+let rangoCargado = null;      // { desde, hasta } ya traído y en pantalla
+let enCurso = null;           // rango que se está descargando ahora
+let detener = false;          // corta la ampliación automática
+const diasHidratados = new Set();   // días del caché local ya pasados a memoria
+
+/* ───────────────────────── Utilidades ───────────────────────── */
+
+const $ = id => document.getElementById(id);
+
+function esc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function norm(s){
+  return String(s == null ? '' : s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+}
+/* El medio de pago se carga a mano y llega con mayúsculas, acentos y espacios
+   dispares ("TRANSFERENCIA", "transferencia ", "Transferencia"). Para el filtro
+   se agrupa por una clave normalizada y se muestra una etiqueta canónica. */
+function medioKey(v){ return norm(String(v == null ? '' : v).trim()).replace(/\s+/g,' '); }
+function medioLabel(v){
+  return String(v == null ? '' : v).trim().toLowerCase().replace(/\s+/g,' ')
+    .replace(/(^|[\s/-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+}
+
+const fmtARS = new Intl.NumberFormat('es-AR', { style:'currency', currency:'ARS', maximumFractionDigits:0 });
+const fmtNum = new Intl.NumberFormat('es-AR');
+function ars(n){ const v = Number(n)||0; return fmtARS.format(v); }
+
+function hoyISO(){
+  // La operación trabaja en horario de Argentina (UTC-3), igual que el resto del sistema.
+  const d = new Date(Date.now() - 3*3600*1000);
+  return d.toISOString().slice(0,10);
+}
+function sumarDias(iso, n){
+  const d = new Date(iso + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0,10);
+}
+function diasEntre(a, b){
+  const out = [];
+  let c = a, guard = 0;
+  while (c <= b && guard++ < 1500){ out.push(c); c = sumarDias(c, 1); }
+  return out;
+}
+function fechaLinda(iso){
+  if (!iso) return '—';
+  const [f, h] = String(iso).split(' ');
+  const p = (f||'').split('-');
+  if (p.length !== 3) return esc(iso);
+  return p[2] + '/' + p[1] + '/' + p[0].slice(2) + (h ? ' <span class="hora">' + h.slice(0,5) + '</span>' : '');
+}
+function fechaCorta(iso){
+  const p = String(iso || '').slice(0,10).split('-');
+  return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0].slice(2) : '—';
+}
+/* Frase del período para los mensajes: "hoy", "en los últimos 30 días"… */
+function descRango(desde, hasta){
+  const n = diasEntre(desde, hasta).length;
+  if (hasta === hoyISO()) return n === 1 ? 'hoy' : 'en los últimos ' + n + ' días';
+  if (desde === hasta) return 'el ' + fechaCorta(desde);
+  return 'entre el ' + fechaCorta(desde) + ' y el ' + fechaCorta(hasta);
+}
+function fechaLarga(iso){
+  if (!iso) return '—';
+  const [f, h] = String(iso).split(' ');
+  const p = (f||'').split('-');
+  if (p.length !== 3) return esc(iso);
+  return p[2] + '/' + p[1] + '/' + p[0] + (h ? ' · ' + h : '');
+}
+
+/* Convierte el pedido crudo de Firebase en el registro que usa la tabla.
+   Los campos normalizados de búsqueda se calculan UNA sola vez, al indexar:
+   así filtrar miles de filas por texto cuesta microsegundos. */
+/* Separador entre ítems dentro de los blobs de búsqueda: impide que una
+   coincidencia se forme pegando el final de un artículo con el siguiente. */
+const SEP = String.fromCharCode(10);
+
+function normalizar(id, p){
+  const items = Array.isArray(p.items) ? p.items : (p.items ? Object.values(p.items) : []);
+  const pagos = p.pagos || {};
+  const nombre = (p.cliente && p.cliente.nombre) || '';
+  const nota = p.nota || '';
+  // Un solo recorrido de los ítems: unidades + los dos blobs de búsqueda.
+  // Precalcularlos aquí hace que filtrar por artículo cueste un indexOf por
+  // pedido en vez de recorrer su lista de ítems en cada tecleo.
+  let unidades = 0, blobArt = '', blobCod = '';
+  for (const it of items){
+    if (!it) continue;
+    unidades += Number(it.cantidad) || 0;
+    if (it.nombre) blobArt += norm(it.nombre) + SEP;
+    if (it.codigo) blobCod += String(it.codigo).toLowerCase() + SEP;
+    if (it.codigoBarras) blobCod += String(it.codigoBarras).toLowerCase() + SEP;
+  }
+  const fecha = p.fecha || '';
+  return {
+    id,
+    dia: fecha.slice(0,10),
+    fecha,
+    ts: Number(p.timestamp) || 0,
+    nombre,
+    nota,
+    estado: p.status || '',
+    entrega: p.entrega || p.tipoEntrega || '',
+    medio: medioLabel(pagos.medioPago || p.medioPago || ''),
+    medioCrudo: pagos.medioPago || p.medioPago || '',
+    _mk: medioKey(pagos.medioPago || p.medioPago || ''),
+    vendedor: p.vendedor || '',
+    total: Number(pagos.totalFinal != null ? pagos.totalFinal : pagos.subtotal) || 0,
+    unidades,
+    lineas: items.length,
+    _n: norm(nombre),
+    _t: norm(nota),
+    _a: blobArt,                // nombres de los artículos, normalizados
+    _c: blobCod,                // código interno + código de barras
+    d: p                        // crudo completo, para el detalle
+  };
+}
+
+/* ───────────────────────── Avisos ───────────────────────── */
+
+function aviso(html, tipo){
+  $('avisos').innerHTML = html
+    ? '<div class="aviso' + (tipo ? ' ' + tipo : '') + '">' + html + '</div>'
+    : '';
+}
+
+/* ───────────────────────── Descarga del período ───────────────────────── */
+
+/** Agrupa los días faltantes en tramos contiguos: menos viajes de red. */
+function agruparTramos(dias){
+  const tramos = [];
+  let ini = null, prev = null;
+  for (const d of dias){
+    if (ini === null){ ini = prev = d; continue; }
+    if (d === sumarDias(prev, 1)){ prev = d; continue; }
+    tramos.push([ini, prev]); ini = prev = d;
+  }
+  if (ini !== null) tramos.push([ini, prev]);
+  return tramos;
+}
+
+/** Una consulta por tramo, recortada en el servidor por el índice `fecha`.
+    '\uf8ff' cierra el día completo: "2026-09-23 18:40" queda dentro. */
+async function traerTramo(desde, hasta){
+  const snap = await db.ref('pedidos')
+    .orderByChild('fecha')
+    .startAt(desde)
+    .endAt(hasta + '\uf8ff')
+    .once('value');
+
+  metrica.req++;
+  const val = snap.val();
+  if (!val) return [];
+  const bytes = JSON.stringify(val).length;
+  metrica.bytes += bytes;
+  metrica.bytesPeriodo += bytes;
+
+  const regs = [];
+  for (const id in val){
+    const r = normalizar(id, val[id]);
+    memoria.set(id, r);
+    regs.push(r);
+  }
+  return regs;
+}
+
+/** Días del rango que hay que pedir a Firebase. Hoy se revalida por TTL. */
+function faltantesDe(desde, hasta, forzar){
+  const hoy = hoyISO();
+  return diasEntre(desde, hasta).filter(d => {
+    if (forzar) return true;
+    const t = diasEnCache.get(d);
+    if (t == null) return true;
+    return (d === hoy) && (Date.now() - t > TTL_HOY);
+  });
+}
+
+/** Descarga estimada de un rango, según lo que pesaron los días ya bajados. */
+function estimar(desde, hasta){
+  const porDia = metrica.diasBajados ? metrica.bytesPeriodo / metrica.diasBajados : 160 * 1024;
+  return faltantesDe(desde, hasta, false).length * porDia;
+}
+
+/** Deja en memoria todo el rango: baja lo que falta y lee el resto del caché. */
+async function cargarPeriodo(desde, hasta, forzar){
+  const faltantes = faltantesDe(desde, hasta, forzar);
+
+  if (faltantes.length){
+    const nuevos = [];
+    for (const [a, b] of agruparTramos(faltantes)){
+      nuevos.push(...await traerTramo(a, b));
+      pintarMetrica();
+    }
+    faltantes.forEach(d => { diasEnCache.set(d, Date.now()); diasHidratados.add(d); });
+    metrica.diasBajados += faltantes.length;
+    idbGuardarLote(nuevos.map(r => ({ id:r.id, dia:r.dia, d:r.d })), faltantes);
+  }
+
+  // Días que ya estaban en el caché del navegador pero todavía no en memoria
+  const porHidratar = diasEntre(desde, hasta).filter(d => !diasHidratados.has(d));
+  if (porHidratar.length){
+    const filas = await idbLeerRango(porHidratar[0], porHidratar[porHidratar.length-1]);
+    for (const f of filas) if (!memoria.has(f.id)) memoria.set(f.id, normalizar(f.id, f.d));
+    porHidratar.forEach(d => diasHidratados.add(d));
+  }
+}
+
+/* ── Etapas: 7 → 30 → 60 → 90 → +30 días cada vez ── */
+const AUTO_TOPE = 90;         // hasta acá se amplía sola; después, a pedido
+
+function siguienteEtapa(n){
+  if (n < 7) return 7;
+  if (n < 30) return 30;
+  return (Math.floor(n / 30) + 1) * 30;
+}
+
+function fijarRango(desde, hasta){
+  $('desde').value = desde; $('hasta').value = hasta;
+  marcarChipActivo();
+}
+
+/**
+ * Punto único de consulta.
+ *   desde/hasta  rango explícito (chips); si faltan se usan los campos de fecha
+ *                o, sin nada elegido, los últimos 7 días.
+ *   ampliar      corre `desde` hacia atrás hasta la etapa siguiente.
+ *   auto         si hay texto y no aparece, sigue ampliando sola hasta AUTO_TOPE.
+ *   forzar       vuelve a descargar aunque esté en caché.
+ */
+async function consultar(o){
+  o = o || {};
+  if (cargando) return;
+
+  let hasta = o.hasta || $('hasta').value || hoyISO();
+  let desde = o.desde || $('desde').value || sumarDias(hasta, -6);
+  if (desde > hasta){ const t = desde; desde = hasta; hasta = t; }
+  if (o.ampliar) desde = sumarDias(hasta, -(siguienteEtapa(diasEntre(desde, hasta).length) - 1));
+
+  const faltan = faltantesDe(desde, hasta, o.forzar).length;
+  if (faltan > 45 && !o.ampliar){
+    const ok = confirm(
+      'El período tiene ' + faltan + ' días sin descargar.\n' +
+      'Estimado: ~' + fmtBytes(estimar(desde, hasta)) + '.\n\n¿Traerlo igual?'
+    );
+    if (!ok) return;
+  }
+
+  fijarRango(desde, hasta);
+  cargando = true; detener = false;
+  $('btnBuscar').disabled = true;
+  $('progreso').classList.add('activa');
+  const t0 = performance.now();
+
+  const trabajando = (d, h) => {
+    enCurso = { desde:d, hasta:h };
+    const n = diasEntre(d, h).length;
+    document.querySelectorAll('.chip[data-dias]').forEach(c =>
+      c.classList.toggle('buscando', h === hoyISO() && Number(c.dataset.dias) === n));
+  };
+
+  try{
+    trabajando(desde, hasta);
+    if (!rangoCargado) render();                  // muestra "Buscando…" en vez de la bienvenida
+    await cargarPeriodo(desde, hasta, o.forzar);
+    rangoCargado = { desde, hasta };
+    filtrar(true);
+
+    // Ampliación automática: sólo cuando se buscó un texto y no apareció
+    const texto = $('q').value.trim();
+    let n = diasEntre(desde, hasta).length;
+    while (o.auto && texto && !filtrados.length && n < AUTO_TOPE && !detener){
+      const antes = descRango(desde, hasta);
+      n = siguienteEtapa(n);
+      desde = sumarDias(hasta, -(n - 1));
+      fijarRango(desde, hasta);
+      trabajando(desde, hasta);
+      aviso('No apareció ' + antes + ' · buscando <b>' + descRango(desde, hasta) + '</b>…' +
+            '<span class="crece"></span><button class="btn-fantasma" onclick="detenerBusqueda()">Detener</button>', 'info');
+      await cargarPeriodo(desde, hasta, false);
+      rangoCargado = { desde, hasta };
+      filtrar(true);
+    }
+  } catch(e){
+    aviso('No se pudo consultar Firebase: <b>' + esc(e.message || e) + '</b>', 'err');
+    return;
+  } finally{
+    metrica.ms = performance.now() - t0;
+    cargando = false; enCurso = null;
+    document.querySelectorAll('.chip.buscando').forEach(c => c.classList.remove('buscando'));
+    $('btnBuscar').disabled = false;
+    $('progreso').classList.remove('activa');
+    pintarMetrica();
+  }
+  if (rangoCargado) fijarRango(rangoCargado.desde, rangoCargado.hasta);
+  render();
+  pintarResumen();
+}
+
+/** Franja sobre la tabla: cuántos hay, en qué período y cómo ampliar. */
+function pintarResumen(){
+  if (!rangoCargado || cargando) return;
+  const n = filtrados.length;
+  if (!n){ aviso(''); return; }             // el estado vacío ya ofrece ampliar
+  const { desde, hasta } = rangoCargado;
+  const q = $('q').value.trim();
+  const sig = siguienteEtapa(diasEntre(desde, hasta).length);
+  const hastaSig = sumarDias(hasta, -(sig - 1));
+  aviso('<b>' + fmtNum.format(n) + '</b> ' + (q ? 'coincidencia' : 'pedido') + (n === 1 ? '' : 's') + ' ' +
+    descRango(desde, hasta) + ' <span class="rango-fechas">' + fechaCorta(desde) + ' → ' + fechaCorta(hasta) + '</span>' +
+    '<span class="crece"></span>' +
+    '<button class="btn-fantasma" onclick="recargarForzado()" title="Vuelve a descargar el período desde Firebase">Actualizar</button>' +
+    '<button class="btn-ampliar" onclick="ampliar()" title="Descarga estimada: ~' + fmtBytes(estimar(hastaSig, hasta)) + '">' +
+      '¿No está? Buscar en ' + sig + ' días →</button>', 'info');
+}
+
+function ampliar(){ consultar({ ampliar:true, auto:true }); }
+function recargarForzado(){
+  if (rangoCargado) consultar({ desde:rangoCargado.desde, hasta:rangoCargado.hasta, forzar:true });
+}
+function detenerBusqueda(){ detener = true; }
+window.ampliar = ampliar;
+window.recargarForzado = recargarForzado;
+window.detenerBusqueda = detenerBusqueda;
+
+/* ───────────────────────── Acceso puntual por ID ───────────────────────── */
+
+const RE_ID = /^-[A-Za-z0-9_-]{15,25}$/;
+
+async function traerPorId(id){
+  cargando = true;
+  $('progreso').classList.add('activa');
+  try{
+    const snap = await db.ref('pedidos/' + id).once('value');
+    metrica.req++;
+    const v = snap.val();
+    if (!v){ aviso('No existe ningún pedido con el ID <b>' + esc(id) + '</b>.', 'err'); return null; }
+    metrica.bytes += JSON.stringify(v).length;
+    const r = normalizar(id, v);
+    memoria.set(id, r);
+    idbGuardarLote([{ id, dia:r.dia, d:v }], []);
+    return r;
+  } catch(e){
+    aviso('Error al leer el pedido: <b>' + esc(e.message || e) + '</b>', 'err');
+    return null;
+  } finally{
+    cargando = false;
+    $('progreso').classList.remove('activa');
+    pintarMetrica();
+  }
+}
+
+/* ───────────────────────── Filtrado (todo local, sin red) ───────────────────────── */
+
+function filtrar(recalcularSelects, silencioso){
+  const t0 = performance.now();
+
+  const texto = norm($('q').value.trim());
+  const c = camposActivos();
+  const fEntrega = $('fEntrega').value;
+  const fMedio = $('fMedio').value, fVendedor = $('fVendedor').value;
+
+  // Sólo cuenta el período traído: lo demás que haya en memoria (un pedido
+  // abierto por ID, días de consultas anteriores) no se mezcla.
+  const out = [];
+  if (rangoCargado){
+    const { desde, hasta } = rangoCargado;
+    memoria.forEach(r => {
+      if (r.dia < desde || r.dia > hasta) return;
+      if (texto && !coincide(r, texto, c)) return;
+      if (fEntrega && r.entrega !== fEntrega) return;
+      if (fMedio && r._mk !== fMedio) return;
+      if (fVendedor && r.vendedor !== fVendedor) return;
+      out.push(r);
+    });
+  }
+
+  const col = orden.col, dir = orden.dir;
+  out.sort((a,b) => {
+    let x = a[col], y = b[col];
+    if (typeof x === 'string' || typeof y === 'string'){
+      x = norm(x); y = norm(y);
+      return x < y ? -dir : x > y ? dir : 0;
+    }
+    return ((x||0) - (y||0)) * dir;
+  });
+
+  filtrados = out;
+  if (recalcularSelects) poblarSelects();
+  if (!silencioso) pagina = 1;
+  metrica.ms = performance.now() - t0;
+  render();
+  pintarMetrica();
+  pintarResumen();
+}
+
+/* Qué campos están activos en el conmutador "Buscar en". */
+function camposActivos(){
+  return {
+    nombre:   $('tglNombre').getAttribute('aria-pressed') === 'true',
+    nota:     $('tglNota').getAttribute('aria-pressed') === 'true',
+    articulo: $('tglArticulo').getAttribute('aria-pressed') === 'true',
+    codigo:   $('tglCodigo').getAttribute('aria-pressed') === 'true'
+  };
+}
+
+/* Todo contra blobs precalculados: un indexOf por campo, sin recorrer ítems. */
+function coincide(r, texto, c){
+  if (c.nombre && r._n.includes(texto)) return true;
+  if (c.nota && r._t.includes(texto)) return true;
+  if (c.articulo && r._a.includes(texto)) return true;
+  if (c.codigo && r._c.includes(texto)) return true;
+  return r.id.toLowerCase() === texto;
+}
+
+function poblarSelects(){
+  const sets = { entrega:new Set(), vendedor:new Set() };
+  const medios = new Map();          // clave normalizada → etiqueta canónica
+  memoria.forEach(r => {
+    if (r.entrega) sets.entrega.add(r.entrega);
+    if (r.vendedor) sets.vendedor.add(r.vendedor);
+    if (r._mk && !medios.has(r._mk)) medios.set(r._mk, r.medio);
+  });
+
+  const llenar = (id, etiqueta, pares) => {
+    const el = $(id), prev = el.value;
+    pares.sort((a,b) => a[1].localeCompare(b[1], 'es'));
+    el.innerHTML = '<option value="">' + etiqueta + '</option>' +
+      pares.map(([v,t]) => '<option value="' + esc(v) + '">' + esc(t) + '</option>').join('');
+    if (prev && pares.some(x => x[0] === prev)) el.value = prev;
+    el.classList.toggle('activo', !!el.value);
+  };
+
+  llenar('fEntrega', 'Entrega: todas', [...sets.entrega].map(v => [v, v]));
+  llenar('fMedio', 'Medio de pago: todos', [...medios.entries()]);
+  llenar('fVendedor', 'Vendedor: todos', [...sets.vendedor].map(v => [v, v]));
+}
+
+/* ───────────────────────── Render de la tabla ───────────────────────── */
+
+function resaltar(texto, q){
+  if (!texto) return '<span class="sin">—</span>';
+  if (!q) return esc(texto);
+  const i = norm(texto).indexOf(q);
+  if (i === -1) return esc(texto);
+  return esc(texto.slice(0,i)) + '<mark>' + esc(texto.slice(i, i+q.length)) + '</mark>' + esc(texto.slice(i+q.length));
+}
+
+function claseEstado(e){
+  const n = norm(e);
+  if (n.includes('cancel')) return 'bad';
+  if (n.includes('entreg') || n.includes('despach')) return 'ok';
+  if (n.includes('pend') || n.includes('prepar') || n.includes('reserv')) return 'warn';
+  return 'neutro';
+}
+
+function render(){
+  const marco = $('marco');
+  const q = norm($('q').value.trim());
+  const total = filtrados.length;
+
+  // ── Vacíos
+  if (!total){
+    const qTxt = $('q').value.trim();
+    let html;
+    if (!rangoCargado && !enCurso){
+      html = '<h3>¿Qué pedido buscás?</h3>' +
+        '<p>Escribí el nombre del cliente, una nota, un artículo o un código y presioná <b>Enter</b>. ' +
+        'Primero se busca en la última semana; si no aparece, la búsqueda se amplía sola. ' +
+        'No se descarga nada hasta que buscás.</p>' +
+        '<div class="pasos"><span>7 días</span><i>→</i><span>30 días</span><i>→</i><span>60 días</span><i>→</i><span>90 días</span><i>→</i><span>+1 mes</span></div>';
+    } else if (cargando && enCurso){
+      html = '<h3>Buscando ' + descRango(enCurso.desde, enCurso.hasta) + '…</h3>' +
+        '<p>Sólo se descargan los días que no estaban guardados en este navegador.</p>';
+    } else {
+      const { desde, hasta } = rangoCargado;
+      const sig = siguienteEtapa(diasEntre(desde, hasta).length);
+      const est = estimar(sumarDias(hasta, -(sig - 1)), hasta);
+      html = (qTxt
+          ? '<h3>Sin coincidencias ' + descRango(desde, hasta) + '</h3>' +
+            '<p>Ningún pedido contiene «<b>' + esc(qTxt) + '</b>» entre el ' + fechaCorta(desde) + ' y el ' + fechaCorta(hasta) + '. ' +
+            'Podés buscar más atrás: sólo se descargan los días que faltan.</p>'
+          : '<h3>No hay pedidos ' + descRango(desde, hasta) + '</h3>' +
+            '<p>No hay registros en ese período con los filtros aplicados.</p>') +
+        '<button class="btn-buscar" onclick="ampliar()">Buscar en ' + sig + ' días</button>' +
+        '<span class="nota-chica">' + (est ? 'descarga estimada ~' + fmtBytes(est) : 'ya está en caché, sin descarga') + '</span>';
+    }
+    marco.innerHTML = '<div class="vacio"><div class="glifo">[ · · · ]</div>' + html + '</div>';
+    return;
+  }
+
+  // ── Página
+  const paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
+  if (pagina > paginas) pagina = paginas;
+  const ini = (pagina - 1) * POR_PAGINA;
+  const vista = filtrados.slice(ini, ini + POR_PAGINA);
+
+  const flecha = c => orden.col === c ? '<span class="orden">' + (orden.dir === 1 ? '▲' : '▼') + '</span>' : '';
+
+  const filas = vista.map((r, i) =>
+    '<tr data-i="' + i + '" data-id="' + esc(r.id) + '"' + (i === seleccion ? ' aria-selected="true"' : '') + '>' +
+      '<td class="num c-fecha">' + fechaLinda(r.fecha) + '</td>' +
+      '<td class="c-cliente">' + resaltar(r.nombre, q) + '</td>' +
+      '<td class="col-opc">' + (r.entrega ? esc(r.entrega) : '<span class="sin">—</span>') + '</td>' +
+      '<td class="col-opc2">' + (r.medio ? esc(r.medio) : '<span class="sin">—</span>') + '</td>' +
+      '<td class="col-opc2">' + (r.vendedor ? esc(r.vendedor) : '<span class="sin">—</span>') + '</td>' +
+      '<td class="c-nota col-opc">' + (r.nota ? resaltar(r.nota, q) : '<span class="sin">—</span>') + '</td>' +
+      '<td class="num c-total">' + ars(r.total) + '</td>' +
+    '</tr>'
+  ).join('');
+
+  marco.innerHTML =
+    '<table class="pedidos aparece"><thead><tr>' +
+      '<th data-col="fecha">Fecha' + flecha('fecha') + '</th>' +
+      '<th data-col="nombre">Cliente' + flecha('nombre') + '</th>' +
+      '<th data-col="entrega" class="col-opc">Entrega' + flecha('entrega') + '</th>' +
+      '<th data-col="medio" class="col-opc2">Pago' + flecha('medio') + '</th>' +
+      '<th data-col="vendedor" class="col-opc2">Vendedor' + flecha('vendedor') + '</th>' +
+      '<th data-col="nota" class="col-opc">Nota' + flecha('nota') + '</th>' +
+      '<th data-col="total" style="text-align:right">Total' + flecha('total') + '</th>' +
+    '</tr></thead><tbody>' + filas + '</tbody></table>' +
+    paginacion(paginas, total, ini, vista.length);
+}
+
+function paginacion(paginas, total, ini, n){
+  if (paginas <= 1) return '<div class="paginacion"><span class="pg-info">' + fmtNum.format(total) + ' pedido' + (total===1?'':'s') + '</span></div>';
+  let html = '<div class="paginacion">';
+  html += '<button class="pg" data-pg="' + (pagina-1) + '"' + (pagina===1?' disabled':'') + '>←</button>';
+  const ventana = 7;
+  let a = Math.max(1, pagina - 3), b = Math.min(paginas, a + ventana - 1);
+  if (b - a < ventana - 1) a = Math.max(1, b - ventana + 1);
+  if (a > 1){ html += '<button class="pg" data-pg="1">1</button>'; if (a > 2) html += '<span class="pg-info">…</span>'; }
+  for (let i = a; i <= b; i++) html += '<button class="pg" data-pg="' + i + '"' + (i===pagina?' aria-current="true"':'') + '>' + i + '</button>';
+  if (b < paginas){ if (b < paginas-1) html += '<span class="pg-info">…</span>'; html += '<button class="pg" data-pg="' + paginas + '">' + paginas + '</button>'; }
+  html += '<button class="pg" data-pg="' + (pagina+1) + '"' + (pagina===paginas?' disabled':'') + '>→</button>';
+  html += '<span class="pg-info">' + fmtNum.format(ini+1) + '–' + fmtNum.format(ini+n) + ' de ' + fmtNum.format(total) + '</span>';
+  return html + '</div>';
+}
+
+/* ───────────────────────── Detalle ───────────────────────── */
+
+let idAbierto = null;
+
+async function abrirDetalle(id){
+  let r = memoria.get(id);
+  if (!r) r = await traerPorId(id);
+  if (!r) return;
+  idAbierto = id;
+  pintarDetalle(r);
+  hoja.abrir();
+}
+
+function pintarDetalle(r){
+  const p = r.d || {};
+  const c = p.cliente || {};
+  const pagos = p.pagos || {};
+  const items = Array.isArray(p.items) ? p.items : (p.items ? Object.values(p.items) : []);
+
+  /* Cabecera */
+  $('hojaCab').innerHTML =
+    '<div class="fila1">' +
+      '<div style="flex:1 1 auto;min-width:0">' +
+        '<h2>' + (r.nombre ? esc(r.nombre) : '<span class="sin">Sin nombre de cliente</span>') + '</h2>' +
+        '<div class="idp"><span>' + fechaLarga(r.fecha) + '</span><span style="color:var(--line)">│</span><span>' + esc(r.id) + '</span></div>' +
+        '<div class="badges">' +
+          '<span class="badge ' + claseEstado(r.estado) + '">' + esc(r.estado || 'sin estado') + '</span>' +
+          (r.entrega ? '<span class="badge neutro">' + esc(r.entrega) + '</span>' : '') +
+          (r.medio ? '<span class="badge neutro">' + esc(r.medio) + '</span>' : '') +
+          (p.createdby ? '<span class="badge neutro">origen: ' + esc(p.createdby) + '</span>' : '') +
+          (p.locked ? '<span class="badge warn">bloqueado</span>' : '') +
+          (p.facturado ? '<span class="badge ok">facturado</span>' : '') +
+        '</div>' +
+      '</div>' +
+      '<button class="cerrar" id="btnCerrarHoja" aria-label="Cerrar">' +
+        '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      '</button>' +
+    '</div>';
+  $('btnCerrarHoja').addEventListener('click', () => hoja.cerrar());
+
+  /* Cliente */
+  const filaDato = (k, v, mono) =>
+    '<dt>' + k + '</dt><dd' + (mono ? ' class="mono"' : '') + '>' + (v ? esc(v) : '<span class="sin">—</span>') + '</dd>';
+
+  let html = '<div class="bloque"><h3>Cliente</h3><dl class="datos">' +
+    filaDato('Nombre', c.nombre) +
+    filaDato('Tipo', c.tipoCliente) +
+    (c.telefono   ? filaDato('Teléfono', c.telefono, true) : '') +
+    (c.email      ? filaDato('Email', c.email) : '') +
+    (c.dni        ? filaDato('DNI / CUIT', c.dni, true) : '') +
+    (c.direccion  ? filaDato('Dirección', c.direccion) : '') +
+    (c.localidad  ? filaDato('Localidad', c.localidad) : '') +
+    (c.provincia  ? filaDato('Provincia', c.provincia) : '') +
+    (c.cp         ? filaDato('CP', c.cp, true) : '') +
+  '</dl></div>';
+
+  /* Nota */
+  if (p.nota){
+    html += '<div class="bloque"><h3>Nota</h3><div class="nota-caja">' + esc(p.nota) +
+      (p.notaFecha ? '<span class="cuando">anotada ' + esc(p.notaFecha) + '</span>' : '') + '</div></div>';
+  }
+
+  /* Artículos — si la búsqueda fue por artículo o código, se marca cuál coincide */
+  const qDet = norm($('q').value.trim());
+  const cDet = camposActivos();
+  const buscaItem = !!qDet && (cDet.articulo || cDet.codigo);
+
+  let subt = 0;
+  const filasItems = items.map((it, i) => {
+    const cant = Number(it.cantidad) || 0;
+    const vu = Number(it.valorU != null ? it.valorU : it.valorUSD) || 0;
+    const sub = cant * vu;
+    subt += sub;
+    const pegaNombre = buscaItem && cDet.articulo && norm(it.nombre).includes(qDet);
+    const pegaCodigo = buscaItem && cDet.codigo &&
+      ((String(it.codigo || '').toLowerCase().includes(qDet)) || (String(it.codigoBarras || '').toLowerCase().includes(qDet)));
+    const clases = [];
+    if (norm(it.seleccionado) === 'si') clases.push('sel');
+    if (pegaNombre || pegaCodigo) clases.push('pega');
+    return '<tr' + (clases.length ? ' class="' + clases.join(' ') + '"' : '') + '>' +
+      '<td class="r" style="color:var(--faint)">' + (i+1) + '</td>' +
+      '<td class="cod">' + (pegaCodigo ? resaltar(it.codigo || '—', qDet) : esc(it.codigo || '—')) + '</td>' +
+      '<td>' + (pegaNombre ? resaltar(it.nombre || '—', qDet) : esc(it.nombre || '—')) + (it.categoria ? '<span class="cat">' + esc(it.categoria) + '</span>' : '') + '</td>' +
+      '<td class="r">' + cant + '</td>' +
+      '<td class="r">' + ars(vu) + '</td>' +
+      '<td class="r"><b>' + ars(sub) + '</b></td>' +
+    '</tr>';
+  }).join('');
+
+  html += '<div class="bloque"><h3>Artículos · ' + items.length + ' línea' + (items.length===1?'':'s') + ' · ' + r.unidades + ' unidades</h3>' +
+    '<table class="items"><thead><tr>' +
+      '<th style="width:26px"></th><th>Código</th><th>Artículo</th>' +
+      '<th class="r" style="width:42px">Cant</th><th class="r" style="width:90px">Unit.</th><th class="r" style="width:100px">Subtotal</th>' +
+    '</tr></thead><tbody>' + (filasItems || '<tr><td colspan="6" style="color:var(--faint)">Sin artículos cargados</td></tr>') +
+    '<tr class="total"><td colspan="3" class="r">Total artículos</td><td class="r">' + r.unidades + '</td><td></td><td class="r">' + ars(subt) + '</td></tr>' +
+    '</tbody></table></div>';
+
+  /* Cuenta */
+  const ln = (k, v, resta) => '<div class="ln' + (resta ? ' resta' : '') + '"><span>' + k + '</span><span>' + v + '</span></div>';
+  html += '<div class="bloque"><h3>Cuenta</h3><div class="cuenta">' +
+    ln('Subtotal', ars(pagos.subtotal != null ? pagos.subtotal : subt)) +
+    (Number(pagos.descuento) ? ln('Descuento', '− ' + ars(pagos.descuento), true) : '') +
+    (Number(pagos.recargo)   ? ln('Recargo', ars(pagos.recargo)) : '') +
+    (Number(pagos.envio)     ? ln('Envío', ars(pagos.envio)) : '') +
+    ln('Medio de pago', esc(pagos.medioPago || '—')) +
+    (pagos.alias ? ln('Alias / cuenta', esc(pagos.alias)) : '') +
+    ln('Total final', ars(pagos.totalFinal != null ? pagos.totalFinal : subt)).replace('class="ln"','class="ln grande"') +
+  '</div></div>';
+
+  $('hojaCuerpo').innerHTML = html;
+  $('hojaCuerpo').scrollTop = 0;
+
+  /* Pie */
+  $('hojaPie').innerHTML =
+    '<a class="btn-hoja primario" href="ingresoPedidoV2.html?id=' + encodeURIComponent(r.id) + '" target="_blank" rel="noopener">Abrir en el editor</a>' +
+    '<button class="btn-hoja" id="btnImprimir">Imprimir</button>' +
+    '<span class="crece"></span>' +
+    '<button class="btn-hoja" id="btnCerrar2">Cerrar</button>';
+  $('btnImprimir').addEventListener('click', () => imprimirPedido(r.id));
+  $('btnCerrar2').addEventListener('click', () => hoja.cerrar());
+}
+
+/* ───────────────────────── Impresión del ticket ─────────────────────────
+   Copia del flujo de historialRecientes.html: ESC-POS vía QZ Tray y, si
+   falla, el recibo HTML de respaldo. */
+
+// ====================================================================
+// IMPRESIÓN ESC-POS (fuente nativa FONTA de la 3nStar RPT008 vía QZ Tray)
+// ====================================================================
+// El navegador no puede mandar bytes ESC-POS por window.print() (siempre
+// rasteriza). QZ Tray es una app local que recibe la orden desde la web y
+// envía texto crudo a la impresora, que lo dibuja con su generador interno
+// FONTA: nítido y definido, no un mapa de bits.
+
+// Nombre exacto de la impresora como figura en Windows.
+// null = usar la impresora por defecto del sistema.
+const POS_PRINTER_NAME = 'POS-80C';
+
+// Ancho de línea de FONTA a 72 mm según el selftest: 48 caracteres.
+const POS_COLS = 48;
+
+// Normaliza a ASCII/PC437 (Page0, code page por defecto de la impresora):
+// sin esto, acentos y ñ saldrían como basura en modo texto.
+function posPlain(val) {
+  if (val === null || val === undefined) return '';
+  return String(val)
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[¿¡]/g, '')
+    .replace(/[^\x00-\x7F]/g, '');
+}
+
+// Helpers de formato a 48 columnas
+function posSep() { return '-'.repeat(POS_COLS) + '\n'; }
+
+function posFila(izq, der) {
+  izq = posPlain(izq); der = posPlain(der);
+  const espacio = POS_COLS - izq.length - der.length;
+  if (espacio < 1) {
+    izq = izq.slice(0, Math.max(0, POS_COLS - der.length - 1));
+    return izq + ' ' + der + '\n';
+  }
+  return izq + ' '.repeat(espacio) + der + '\n';
+}
+
+function posWrap(texto) {
+  texto = posPlain(texto);
+  let out = '';
+  while (texto.length > POS_COLS) {
+    out += texto.slice(0, POS_COLS) + '\n';
+    texto = texto.slice(POS_COLS);
+  }
+  return out + texto + '\n';
+}
+
+// Comandos ESC-POS como bytes hex / texto plano (formato que entiende QZ)
+const escCmd = (hex) => ({ type: 'raw', format: 'hex', data: hex });
+const escTxt = (s) => ({ type: 'raw', format: 'plain', data: s });
+
+// Construye el documento ESC-POS completo del recibo.
+// conLogo=false omite la imagen (el logo es lo único raster; si la
+// impresora/QZ no lo puede procesar, igual sale todo el texto nativo).
+function construirESCPOS(pedido, conLogo, id) {
+  const cliente = pedido.cliente || {};
+  const nombre = cliente.nombre || '';
+  const telefono = cliente.telefono || '';
+  const pagos = pedido.pagos || {};
+  const medioPago = pagos.medioPago || '';
+
+  const parseNum = (val) => {
+    if (val === null || val === undefined || val === '') return NaN;
+    if (typeof val === 'number') return val;
+    const clean = String(val).replace(/[^\d,.-]/g, '');
+    return parseFloat(clean.replace(/\./g, '').replace(',', '.'));
+  };
+  const soloEntero = (val) => {
+    if (val === null || val === undefined || val === '') return '';
+    const n = parseNum(val);
+    if (isNaN(n)) return String(val);
+    return Math.round(n).toLocaleString('es-AR', { maximumFractionDigits: 0 });
+  };
+  const ultimos5BC = (cb) => {
+    if (!cb) return '';
+    return String(cb).split(',').map(s => s.replace(/\D/g, '').slice(-5)).filter(Boolean).join(' ');
+  };
+
+  const data = [];
+  data.push(escCmd('1B40'));   // ESC @  -> reset
+  data.push(escCmd('1B7400')); // ESC t 0 -> code page PC437 (Page0)
+  data.push(escCmd('1B5200')); // ESC R 0 -> juego de caracteres USA
+
+  // Encabezado centrado
+  data.push(escCmd('1B6101')); // centrar
+  if (conLogo) {
+    // Logo: única parte raster. Si QZ/impresora no lo procesa, se
+    // reintenta sin logo (ver imprimirReciboESCPOS) y el texto igual sale.
+    try {
+      const logoUrl = new URL('logo.png', window.location.href).href;
+      data.push({ type: 'raw', format: 'image', flavor: 'file', data: logoUrl,
+                  options: { language: 'ESCPOS', dotDensity: 'double' } });
+      data.push(escTxt('\n'));
+    } catch (e) { /* sin logo, el ticket igual sale */ }
+  } else {
+    // Sin logo: nombre del local como texto nativo (doble alto/ancho)
+    data.push(escCmd('1D2111')); // GS ! 0x11 -> doble alto y ancho
+    data.push(escTxt('HOMEPOINT\n'));
+    data.push(escCmd('1D2100')); // GS ! 0x00 -> tamaño normal
+  }
+  data.push(escTxt('\n'));
+  data.push(escTxt('Velez Sarsfield 4127, Munro\n'));
+  data.push(escTxt('Tel. 11 2189-1006\n'));
+  data.push(escTxt('\n')); // línea en blanco antes del título
+  data.push(escCmd('1B4501')); // negrita on
+  data.push(escTxt('PRESUPUESTO\n'));
+  data.push(escCmd('1B4500')); // negrita off
+  data.push(escTxt(posPlain(new Date(pedido.timestamp).toLocaleString('es-AR', { hour12: false })) + '\n'));
+
+  // Cuerpo alineado a la izquierda
+  data.push(escCmd('1B6100'));
+  data.push(escTxt(posSep()));
+  data.push(escTxt(posWrap('Nombre: ' + nombre)));
+  data.push(escTxt(posWrap('Telefono: ' + telefono)));
+  data.push(escTxt(posSep()));
+
+  if (pedido.items && Array.isArray(pedido.items)) {
+    pedido.items.forEach(it => {
+      const cant = it.cantidad || 0;
+      const vU = it.valorU || 0;
+      const vTotal = cant * vU;
+      const bc = ultimos5BC(it.codigoBarras);
+      data.push(escCmd('1B4501'));
+      data.push(escTxt(posWrap((it.nombre || '').toUpperCase())));
+      data.push(escCmd('1B4500'));
+      data.push(escTxt(posFila(cant + ' x ' + soloEntero(vU), soloEntero(vTotal))));
+      data.push(escTxt(posWrap('COD.' + (it.codigo || '') + (bc ? ' - ' + bc : ''))));
+    });
+  }
+
+  data.push(escTxt(posSep()));
+  data.push(escTxt(posFila('Subtotal', soloEntero(pagos.subtotal))));
+  data.push(escTxt(posFila('Medio de Pago', medioPago)));
+  if (parseNum(pagos.recargo)) data.push(escTxt(posFila('Recargo', soloEntero(pagos.recargo))));
+  if (parseNum(pagos.descuento)) data.push(escTxt(posFila('Descuento', soloEntero(pagos.descuento))));
+  if (parseNum(pagos.envio)) data.push(escTxt(posFila('Costo de Envio', soloEntero(pagos.envio))));
+  data.push(escCmd('1B4501'));
+  data.push(escTxt(posFila('TOTAL', '$ ' + soloEntero(pagos.totalFinal))));
+  data.push(escCmd('1B4500'));
+
+  data.push(escTxt(posSep()));
+  data.push(escCmd('1B6101')); // centrar leyenda
+  data.push(escCmd('1B4501'));
+  data.push(escTxt(posWrap('- DOCUMENTO NO VALIDO COMO FACTURA -')));
+  data.push(escCmd('1B4500'));
+
+  // Vendedor + ID de pedido (ver codigoTicket), discreto y centrado al pie del ticket
+  if (id) {
+    data.push(escTxt('\n'));
+    data.push(escTxt(posWrap(codigoTicket(id, pedido.vendedor))));
+  }
+
+  data.push(escTxt('\n\n\n'));
+  data.push(escCmd('1D564203')); // GS V 66 3 -> avanza y corta (parcial)
+  return data;
+}
+
+// QZ Tray — certificado propio (importar C:\Users\alero\.claude\qz-cert.pem en Site Manager para eliminar el diálogo).
+let qzConfigurado = false;
+function configurarQZ() {
+  if (qzConfigurado || typeof qz === 'undefined') return;
+  const QZ_CERT = `-----BEGIN CERTIFICATE-----
+MIIDXTCCAkWgAwIBAgIUPMCoqhpYQ4z55zCYiyngpH47VAwwDQYJKoZIhvcNAQEL
+BQAwPjELMAkGA1UEBhMCQVIxEjAQBgNVBAoMCUhvbWVQb2ludDEbMBkGA1UEAwwS
+SG9tZVBvaW50IEFkbWluIFFaMB4XDTI2MDUxOTE2NTAxOFoXDTM2MDUxNjE2NTAx
+OFowPjELMAkGA1UEBhMCQVIxEjAQBgNVBAoMCUhvbWVQb2ludDEbMBkGA1UEAwwS
+SG9tZVBvaW50IEFkbWluIFFaMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKC
+AQEA0G3Pek2EDxsUuyRoqYttHqkmudOhJ56FrUqqdks01dB52+kfoElM995N4Xqm
+GkBTkPLV30lUkEF1W5xKdCe3DcTp0qcZpIDf2468SKlvyi4WI9ji8rIBB4b/jN6l
+ECKUooi4iEeihKQ2WY2o7d7vhD52ITvJ9rKXJ1TWe9yyaW2sz3b7DfGKqZv+VwWY
+bQfZwLtymkGOi0IIplHwWmRoQdrl3rXE8tOIeB7Br15vKbIoXGwkV6W4rVmg+ngA
+M0BYqmcg08hRXZqUZ1nmyNsRrXijTv6D8qLvefO7D3eqIKXs0okmacGWZzfGLGnD
+YlEXTAVnMNmolKaRSVNVbF230wIDAQABo1MwUTAdBgNVHQ4EFgQUJbmYNOzALjUF
+zMY93JIwa2M6bi8wHwYDVR0jBBgwFoAUJbmYNOzALjUFzMY93JIwa2M6bi8wDwYD
+VR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAYO72+pxaqZifKkimB0tw
+mvKuqEfOOiXBawh7xBlLaTvHDaVH6v6ABqj7S73vSRBiD00oFKf5FQ42I+O1bUoN
+QYdIsxA2Q8ka7HaxMTB5v4ZBvbyXWLrRIavwY5XI2JWzArvZ8oTKB/gHF5lo9yDI
+nfvKQ9SL9y+GfwHOGkmUaw2ViScT17KdMJzSWoE37Qasp50Du+boRdmOgL0fN4nL
+zRY73MMEek1ny+DkbJ2OR7vmF2FSHaPqJzZb+UCINC3Pbf5KxqUPn+K2CEfT53hW
+3ALNhGIFw9E7pN6IE5LEdNkZCwpZRDksRo3UeBVcowsdmKzZ7Uwbe1dzxygzaLxX
+tw==
+-----END CERTIFICATE-----`;
+  const QZ_KEY = `-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDQbc96TYQPGxS7
+JGipi20eqSa506EnnoWtSqp2SzTV0Hnb6R+gSUz33k3heqYaQFOQ8tXfSVSQQXVb
+nEp0J7cNxOnSpxmkgN/bjrxIqW/KLhYj2OLysgEHhv+M3qUQIpSiiLiIR6KEpDZZ
+jajt3u+EPnYhO8n2spcnVNZ73LJpbazPdvsN8Yqpm/5XBZhtB9nAu3KaQY6LQgim
+UfBaZGhB2uXetcTy04h4HsGvXm8psihcbCRXpbitWaD6eAAzQFiqZyDTyFFdmpRn
+WebI2xGteKNO/oPyou9587sPd6ogpezSiSZpwZZnN8YsacNiURdMBWcw2aiUppFJ
+U1VsXbfTAgMBAAECggEACsutQ+3w6aFi9QCBRUrZ940WWuipv7YXwW6NHrxte6el
+MC1GfJRfXrVOfl/Oa6yqR2c0ibCwJxqk2/5f4t1Nv3JUFBugmeMs9R/TA8Z26ldx
+wSCSPLTYlc25vc+oaAoKfdKsEC75rXod8IyEU/HIoSZlEvqYTuVYK+ragybevNQf
+69UNrSovGjHuwDj3+tyZh0V7/Tp9Ch3iDRxFEZeqXtH0C8g4SxR0pTafyAIasyhV
+q6Y2ETEJWMVNUIIyrqtvWIQsewV6ykwUns09Qi6mFbBtz8uCLPsSyV7FccpOuWEk
+evL37yDL6HwdzA/xDnBST+eZeaRqBkB9rZs4W0kjpQKBgQD7fBZdudKO1/63AND4
+0DeVW/g3XZ6JiqBNFTtY1Q3pZRKbJhS+fSrZdReI7/7SZg9Tpgp9L6ih0aGe/Xqm
+Utz2SHQEk9D5nr8aTmn6E/YK956XuW1h6OGAdvxYfnnJibMIzT6yVVDYlFY1olj/
+VzXsmT0NM1JO/T4MCCfAKicEfwKBgQDUK9LU5NE/SaLwXslUK+jccTSP6cGUn+D0
+2IVTsccrh1lnD1ZlMoUR+5RTXAV5cyBzDL3ogvhpHTTaS8LGrJsw6c9wUvlbAVis
+hZ9WhXcC/U62ww5wZXFb+ShrYqrOLIv1Ul62Ixdoi2wofUOzT13tyGVgfuAtdeJ5
+QY4US/FSrQKBgQCKNi5MoH26B7dzeD1hIX4K1hrawtcInGlxM8QEFEOrC+Nn5Uvt
+TPkpvhKLLesMUw8FV/HXz0OMe5upt4Gau1u49yTcBykIp1g76vCPgjzs1h4RINWe
+w9B7O+l/8TKZstX0dmiIth7SiOPAYlMrMhDu0WEeSiBoTQG2txyxnfkHnQKBgHP9
+kUD55rrmksE90GrHpoH9EXMro7yQuvaf+CONKQlO8T06UUz5lW4DT09TG1sN6Ut8
+R8X487zjTqWYjV73tc/DwrfxZIiv775BPp6aUDm+KW4YrKgdjR9u0v4B7sbP66Ot
+6EFCZeWtcu+fq4c3eG4qA+IA+qVfsPQBNp859S/xAoGBALKK0Wx/OHaWPrAaThP0
+swiTwxojtYcW2WoyuWXzJClYn1id6V+kpFuDiLDJjg6ngdeXvZ9BHRY8J/eWe1JE
+0YPZcP39H64LvTr+s65TtMrhCs5eNKd5hiGAB0T5Ctardy4f5liqQ8EqNa7YzcR/
+8xJFkCasp5SwyHnKysUl8ViY
+-----END PRIVATE KEY-----`;
+  qz.security.setCertificatePromise((resolve) => resolve(QZ_CERT));
+  qz.security.setSignatureAlgorithm('SHA512');
+  qz.security.setSignaturePromise(function(toSign) {
+    return function(resolve, reject) {
+      const pem = QZ_KEY.replace(/-----[^-]+-----/g, '').replace(/\s/g, '');
+      const der = Uint8Array.from(atob(pem), c => c.charCodeAt(0));
+      crypto.subtle.importKey('pkcs8', der.buffer,
+        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-512' }, false, ['sign'])
+        .then(function(key) {
+          return crypto.subtle.sign('RSASSA-PKCS1-v1_5', key,
+            new TextEncoder().encode(toSign));
+        })
+        .then(function(sig) {
+          const bytes = new Uint8Array(sig);
+          let str = '';
+          for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+          resolve(btoa(str));
+        })
+        .catch(reject);
+    };
+  });
+  qzConfigurado = true;
+}
+
+async function conectarQZ() {
+  if (typeof qz === 'undefined') throw new Error('La librería de QZ Tray no se cargó');
+  configurarQZ();
+  if (qz.websocket.isActive()) return;
+  await qz.websocket.connect();
+}
+
+async function seleccionarImpresoraPOS() {
+  if (POS_PRINTER_NAME) return POS_PRINTER_NAME;
+  let lista = await qz.printers.find();
+  if (!Array.isArray(lista)) lista = [lista];
+  const m = lista.find(n => /3n[\s-]?star|rpt[\s-]?008|pos[\s-]?80|thermal|ticket/i.test(n));
+  if (m) return m;
+  return await qz.printers.getDefault();
+}
+
+async function imprimirReciboESCPOS(pedido, id) {
+  await conectarQZ();
+  const printerName = await seleccionarImpresoraPOS();
+  if (!printerName) throw new Error('No se encontró ninguna impresora');
+  const config = qz.configs.create(printerName, { encoding: 'CP437' });
+  try {
+    // Intento 1: con logo (imagen raster)
+    await qz.print(config, construirESCPOS(pedido, true, id));
+  } catch (eLogo) {
+    // Intento 2: sin logo (solo texto nativo). Si esto también falla,
+    // se propaga el error y el llamador ofrece el respaldo HTML.
+    console.warn('Print con logo falló, reintentando sin logo:', eLogo);
+    await qz.print(config, construirESCPOS(pedido, false, id));
+  }
+}
+
+async function imprimirPedido(id){
+  const r = memoria.get(id) || await traerPorId(id);
+  if (!r || !r.d){ alert('Pedido no encontrado'); return; }
+  // Mismo formato que espera el ticket: items como array.
+  const p = r.d;
+  const pedido = Object.assign({}, p, {
+    items: Array.isArray(p.items) ? p.items : (p.items ? Object.values(p.items) : [])
+  });
+  try {
+    // Camino principal: modo texto ESC-POS con la fuente nativa FONTA
+    await imprimirReciboESCPOS(pedido, id);
+  } catch (e) {
+    console.error('Fallo impresión ESC-POS:', e);
+    let motivo = (e && e.message) ? e.message : String(e);
+    if (typeof qz === 'undefined') {
+      motivo = 'La librería de QZ Tray no se cargó (¿sin internet o CDN bloqueado?).';
+    } else if (!qz.websocket.isActive()) {
+      motivo = 'No se pudo conectar con QZ Tray. Verificá que QZ Tray esté instalado y CORRIENDO (ícono en la bandeja del sistema).\n\nDetalle técnico: ' + motivo;
+    }
+    const usarHTML = confirm(
+      'No se pudo imprimir en modo ESC-POS (fuente nativa).\n\n' +
+      motivo + '\n\n' +
+      '¿Querés imprimir con el método HTML de respaldo (menos nítido)?'
+    );
+    if (usarHTML) generarReciboYImprimir(pedido, id);
+  }
+}
+
+// Código del pie del ticket: iniciales del vendedor + ID corto, ej. "SA - HVO45923".
+// Mismo formato que ingresoPedidoV2.js. Sin vendedor queda sólo el ID. Sin
+// tildes: la impresora térmica usa CP437.
+function codigoTicket(id, vendedor) {
+  if (!id) return '';
+  const corto = String(id).slice(-8).toUpperCase();
+  const ini = String(vendedor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase();
+  return ini ? ini + ' - ' + corto : corto;
+}
+
+function generarReciboYImprimir(pedido, id) {
+  // Obtener datos del pedido
+  const cliente = pedido.cliente || {};
+  const nombre = cliente.nombre || '';
+  const telefono = cliente.telefono || '';
+  const pagos = pedido.pagos || {};
+  const medioPago = pagos.medioPago || '';
+  const subtotal = pagos.subtotal;
+  const recargo = pagos.recargo;
+  const descuento = pagos.descuento;
+  const envio = pagos.envio;
+  const totalFinal = pagos.totalFinal;
+
+  // Helper: parsea cualquier valor a número (soporta formato es-AR)
+  const parseNum = (val) => {
+    if (val === null || val === undefined || val === '') return NaN;
+    if (typeof val === 'number') return val;
+    const clean = String(val).replace(/[^\d,.-]/g, '');
+    // Formato es-AR: '.' separador de miles, ',' decimal
+    return parseFloat(clean.replace(/\./g, '').replace(',', '.'));
+  };
+
+  // Helper: convierte cualquier valor a entero formateado es-AR (sin decimales)
+  const soloEntero = (val) => {
+    if (val === null || val === undefined || val === '') return '';
+    const n = parseNum(val);
+    if (isNaN(n)) return String(val);
+    return Math.round(n).toLocaleString('es-AR', { maximumFractionDigits: 0 });
+  };
+
+  // Helper: últimos 5 dígitos de cada código de barras asignado
+  const ultimos5BC = (cb) => {
+    if (!cb) return '';
+    return String(cb)
+      .split(',')
+      .map(s => s.replace(/\D/g, '').slice(-5))
+      .filter(Boolean)
+      .join(' ');
+  };
+
+  // Helper: normaliza texto para la impresora POS 3nStar RPT008.
+  // Su code page por defecto es Page0 (PC437 Std.Europe), que NO incluye
+  // á é í ó ú ñ ü ¿ ¡. Sin esta normalización los acentos saldrían como
+  // caracteres basura en el ticket. Se descomponen los diacríticos (NFD),
+  // se eliminan las marcas combinantes y se descarta cualquier byte no ASCII.
+  const posText = (val) => {
+    if (val === null || val === undefined) return '';
+    return String(val)
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/¿|¡/g, '')
+      .replace(/[^\x00-\x7F]/g, '');
+  };
+
+  // Items en formato ticket
+  let itemsHtml = '';
+  if (pedido.items && Array.isArray(pedido.items)) {
+    pedido.items.forEach(it => {
+      const cant = it.cantidad || 0;
+      const vU = it.valorU || 0;
+      const vTotal = cant * vU;
+      const bc = ultimos5BC(it.codigoBarras);
+      itemsHtml += `
+        <div class="item">
+          <div class="item-nombre">${(it.nombre || '').toUpperCase()}</div>
+          <div class="item-linea">
+            <span>${cant} x ${soloEntero(vU)}</span>
+            <span>${soloEntero(vTotal)}</span>
+          </div>
+          <div class="item-cod">COD.${it.codigo || ''}${bc ? ' - ' + bc : ''}</div>
+        </div>`;
+    });
+  }
+  // Recibo HTML (formato ticket, ancho máx 8cm)
+  const reciboHtml = `
+    <html>
+    <head>
+      <title>Orden de Pedido</title>
+      <style>
+        /* 3nStar RPT008: ancho de papel 80mm, área imprimible 72mm (ver selftest).
+           El cuadro se limita a 72mm para que nada se recorte ni se reescale. */
+        @page { size: 80mm auto; margin: 0; }
+        html, body { margin: 0; padding: 0; }
+        /* Tamaño de fuente único para todo el ticket: la variación de
+           tamaños se elimina; solo se conserva negrita para jerarquía. */
+        body { font-family: 'Courier New', Courier, monospace; font-size: 12px; line-height: 1.35; color: #000; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .recibo-box { width: 72mm; max-width: 72mm; margin: 0 auto; padding: 6px 4px; background: #fff; box-sizing: border-box; }
+        .logo { display: block; margin: 0 auto 6px auto; max-width: 60mm; max-height: 22mm; object-fit: contain; }
+        .local { text-align: center; }
+        .titulo { text-align: center; font-weight: bold; margin: 1.4em 0 4px 0; }
+        .fecha { text-align: center; margin-bottom: 6px; }
+        .datos { }
+        .sep { border: none; border-top: 1px dashed #000; margin: 6px 0; }
+        .item { margin-bottom: 6px; }
+        .item-nombre { font-weight: bold; word-break: break-word; }
+        .item-linea { display: flex; justify-content: space-between; }
+        .item-cod { color: #000; }
+        .tot { padding: 2px 2px; }
+        .tot-fila { display: flex; justify-content: space-between; padding: 1px 0; }
+        .tot-final { font-weight: bold; }
+        .legend { text-align: center; font-weight: bold; margin-top: 12px; }
+        .pedido-id { text-align: center; margin-top: 10px; font-size: 9px; color: #555; }
+        @media print { button { display: none !important; } }
+      </style>
+    </head>
+    <body>
+      <div class='recibo-box'>
+        <img src="logo.png" alt="Logo" class="logo">
+        <div class="local">Vélez Sársfield 4127, Munro</div>
+        <div class="local">Tel. 11 2189-1006</div>
+        <div class="titulo">PRESUPUESTO</div>
+        <div class="fecha">${new Date(pedido.timestamp).toLocaleString('es-AR', { hour12: false })}</div>
+        <hr class="sep">
+        <div class="datos">
+          <div>Nombre: ${nombre}</div>
+          <div>Telefono: ${telefono}</div>
+        </div>
+        <hr class="sep">
+        ${itemsHtml}
+        <hr class="sep">
+        <div class="tot">
+          <div class="tot-fila"><span>Subtotal</span><span>${soloEntero(subtotal)}</span></div>
+          <div class="tot-fila"><span>Medio de Pago</span><span>${medioPago}</span></div>
+          ${parseNum(recargo) ? `<div class="tot-fila"><span>Recargo</span><span>${soloEntero(recargo)}</span></div>` : ''}
+          ${parseNum(descuento) ? `<div class="tot-fila"><span>Descuento</span><span>${soloEntero(descuento)}</span></div>` : ''}
+          ${parseNum(envio) ? `<div class="tot-fila"><span>Costo de Envío</span><span>${soloEntero(envio)}</span></div>` : ''}
+          <div class="tot-fila tot-final"><span>TOTAL</span><span>$ ${soloEntero(totalFinal)}</span></div>
+        </div>
+        <hr class="sep">
+        <div class="legend">- DOCUMENTO NO VALIDO COMO FACTURA -</div>
+        ${id ? `<div class="pedido-id">${codigoTicket(id, pedido.vendedor)}</div>` : ''}
+      </div>
+      <script>window.onload = function(){ window.print(); }<\/script>
+    </body>
+    </html>
+  `;
+
+  // Abrir ventana e imprimir.
+  // Una única pasada por posText() normaliza TODO el ticket (texto fijo y
+  // dinámico) a ASCII/PC437, el code page por defecto de la 3nStar RPT008.
+  const w = window.open('', '_blank', 'width=600,height=800');
+  w.document.write(posText(reciboHtml));
+  w.document.close();
+}
+
+/* ───────────────────────── La hoja: resorte + arrastre ─────────────────────────
+   Nada de transiciones CSS: un resorte integrado por frame arranca siempre desde
+   el valor que hay en pantalla, así se puede agarrar y revertir a mitad de vuelo.
+   Al soltar se proyecta la inercia del dedo (misma curva que la deceleración de
+   scroll) y se entrega la velocidad al resorte: no hay costura entre gesto y
+   animación. */
+
+const hoja = (function(){
+  const el = $('hoja'), scrim = $('scrim'), asa = $('asa'), cab = $('hojaCab');
+  const reducido = matchMedia('(prefers-reduced-motion: reduce)');
+
+  let x = 0, objetivo = 0, v = 0, raf = null, ultimo = 0;
+  let ancho = 620, abierta = false;
+  let arrastrando = false, grabX = 0, historial = [];
+  const RESPUESTA = 0.38, AMORT_BASE = 1.0;
+  let amort = AMORT_BASE;
+
+  function medir(){ ancho = el.getBoundingClientRect().width || 620; }
+
+  function pintar(){
+    el.style.transform = 'translate3d(' + x.toFixed(2) + 'px,0,0)';
+    const p = 1 - Math.min(1, x / ancho);
+    scrim.style.opacity = (p * 0.95).toFixed(3);
+  }
+
+  function paso(t){
+    const dt = Math.min(0.064, (t - ultimo) / 1000) || 0.016;
+    ultimo = t;
+    const w = 2 * Math.PI / RESPUESTA;
+    // Subpasos fijos: estable aunque el frame se estire
+    const h = 1/360;
+    let resto = dt;
+    while (resto > 0){
+      const paso_h = Math.min(h, resto);
+      const a = -2 * amort * w * v - w * w * (x - objetivo);
+      v += a * paso_h;
+      x += v * paso_h;
+      resto -= paso_h;
+    }
+    pintar();
+    if (Math.abs(v) < 0.6 && Math.abs(x - objetivo) < 0.4){
+      x = objetivo; v = 0; pintar(); raf = null; asentar();
+      return;
+    }
+    raf = requestAnimationFrame(paso);
+  }
+
+  function correr(){ if (raf == null){ ultimo = performance.now(); raf = requestAnimationFrame(paso); } }
+  function parar(){ if (raf != null){ cancelAnimationFrame(raf); raf = null; } }
+
+  function asentar(){
+    if (x >= ancho - 0.5 && !abierta){
+      el.classList.remove('viva'); scrim.classList.remove('viva');
+    }
+  }
+
+  function ir(destino, v0, rebote){
+    objetivo = destino;
+    amort = rebote ? 0.82 : AMORT_BASE;
+    if (v0 != null) v = v0;
+    if (reducido.matches){ parar(); x = destino; v = 0; pintar(); asentar(); return; }
+    correr();
+  }
+
+  function abrir(){
+    medir();
+    el.classList.add('viva'); scrim.classList.add('viva');
+    if (!abierta){ x = ancho; pintar(); }
+    abierta = true;
+    ir(0, null, false);
+    el.focus({ preventScroll:true });
+  }
+
+  function cerrar(v0){
+    if (!abierta && x >= ancho) return;
+    abierta = false;
+    ir(ancho, v0, false);
+    idAbierto = null;
+  }
+
+  /* Proyección de inercia de Apple (decaimiento exponencial, no v²/2a) */
+  function proyectar(v0, d){ d = d || 0.998; return (v0/1000) * d / (1 - d); }
+
+  function iniciarArrastre(e){
+    if (e.button != null && e.button !== 0) return;
+    if (e.target.closest('button, a, input, select, summary')) return;
+    medir();
+    parar();
+    arrastrando = true;
+    grabX = e.clientX - x;                // respeta DÓNDE se agarró
+    historial = [{ x:e.clientX, t:performance.now() }];
+    e.currentTarget.setPointerCapture(e.pointerId);
+    el.style.willChange = 'transform';
+  }
+
+  function moverArrastre(e){
+    if (!arrastrando) return;
+    let nx = e.clientX - grabX;
+    if (nx < 0){
+      // Banda elástica: cuanto más se pasa del borde, menos sigue al dedo
+      const over = -nx;
+      nx = -(over * ancho * 0.55) / (ancho + 0.55 * over);
+    }
+    x = nx; pintar();
+    historial.push({ x:e.clientX, t:performance.now() });
+    if (historial.length > 6) historial.shift();
+  }
+
+  function soltarArrastre(e){
+    if (!arrastrando) return;
+    arrastrando = false;
+    el.style.willChange = '';
+
+    // Velocidad de los últimos ~80 ms
+    const ahora = performance.now();
+    const muestras = historial.filter(m => ahora - m.t < 90);
+    let vel = 0;
+    if (muestras.length >= 2){
+      const a = muestras[0], b = muestras[muestras.length-1];
+      const dt = (b.t - a.t) / 1000;
+      if (dt > 0) vel = (b.x - a.x) / dt;
+    }
+
+    const proyectado = x + proyectar(vel);
+    const cerrarlo = proyectado > ancho * 0.42;
+    if (cerrarlo) cerrar(vel);
+    else ir(0, vel, Math.abs(vel) > 350);   // rebote sólo si venía con impulso
+  }
+
+  asa.addEventListener('pointerdown', iniciarArrastre);
+  asa.addEventListener('pointermove', moverArrastre);
+  asa.addEventListener('pointerup', soltarArrastre);
+  asa.addEventListener('pointercancel', soltarArrastre);
+  cab.addEventListener('pointerdown', iniciarArrastre);
+  cab.addEventListener('pointermove', moverArrastre);
+  cab.addEventListener('pointerup', soltarArrastre);
+  cab.addEventListener('pointercancel', soltarArrastre);
+
+  scrim.addEventListener('click', () => cerrar());
+  addEventListener('resize', () => { medir(); if (!abierta){ x = ancho; pintar(); } });
+
+  // Estado inicial cerrado
+  requestAnimationFrame(() => { medir(); x = ancho; pintar(); });
+
+  return { abrir, cerrar, get abierta(){ return abierta; } };
+})();
+
+/* ───────────────────────── Eventos de la interfaz ───────────────────────── */
+
+/* Atajos de período: cada chip es una consulta explícita */
+document.querySelectorAll('.chip[data-dias]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const h = hoyISO();
+    consultar({ desde:sumarDias(h, -(Number(btn.dataset.dias) - 1)), hasta:h });
+  });
+});
+
+function marcarChipActivo(){
+  const a = $('desde').value, b = $('hasta').value, h = hoyISO();
+  document.querySelectorAll('.chip[data-dias]').forEach(c => {
+    const n = Number(c.dataset.dias);
+    c.setAttribute('aria-pressed', String(b === h && a === sumarDias(h, -(n - 1))));
+  });
+}
+
+$('desde').addEventListener('change', marcarChipActivo);
+$('hasta').addEventListener('change', marcarChipActivo);
+['desde','hasta'].forEach(id => $(id).addEventListener('keydown', e => {
+  if (e.key === 'Enter'){ e.preventDefault(); consultar({ auto:true }); }
+}));
+
+/* Buscar: un ID exacto se lee directo; el resto recorre las etapas */
+async function buscar(){
+  const val = $('q').value.trim();
+  if (RE_ID.test(val)){ await abrirDetalle(val); return; }
+  consultar({ auto:true });
+}
+$('btnBuscar').addEventListener('click', buscar);
+
+/* Campo de texto: filtra en local, sin tocar la red */
+let tDebounce = null;
+$('q').addEventListener('input', () => {
+  $('btnLimpiarQ').classList.toggle('visible', !!$('q').value);
+  clearTimeout(tDebounce);
+  // Con un período ya traído se filtra al tipear; la red sólo se usa con Enter
+  tDebounce = setTimeout(() => { seleccion = -1; filtrar(false); }, 90);
+});
+
+$('q').addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  buscar();
+});
+
+$('btnLimpiarQ').addEventListener('click', () => {
+  $('q').value = ''; $('btnLimpiarQ').classList.remove('visible');
+  $('q').focus(); seleccion = -1; filtrar(false);
+});
+
+const TOGGLES = ['tglNombre','tglNota','tglArticulo','tglCodigo'];
+TOGGLES.forEach(id => {
+  $(id).addEventListener('click', () => {
+    const on = $(id).getAttribute('aria-pressed') === 'true';
+    // Siempre tiene que quedar al menos un campo activo
+    const otros = TOGGLES.filter(x => x !== id).some(x => $(x).getAttribute('aria-pressed') === 'true');
+    if (on && !otros) return;
+    $(id).setAttribute('aria-pressed', String(!on));
+    seleccion = -1;
+    filtrar(false);
+  });
+});
+
+['fEntrega','fMedio','fVendedor'].forEach(id => {
+  $(id).addEventListener('change', () => {
+    $(id).classList.toggle('activo', !!$(id).value);
+    filtrar(false);
+  });
+});
+
+$('btnResetFiltros').addEventListener('click', () => {
+  ['fEntrega','fMedio','fVendedor'].forEach(id => { $(id).value = ''; $(id).classList.remove('activo'); });
+  $('q').value = ''; $('btnLimpiarQ').classList.remove('visible');
+  filtrar(false);
+});
+
+/* Delegación: filas, orden y paginación */
+$('marco').addEventListener('click', e => {
+  const th = e.target.closest('th[data-col]');
+  if (th){
+    const c = th.dataset.col;
+    orden = { col:c, dir: orden.col === c ? -orden.dir : (c === 'fecha' || c === 'total' || c === 'unidades' ? -1 : 1) };
+    filtrar(false, true); return;
+  }
+  const pg = e.target.closest('.pg[data-pg]');
+  if (pg){ pagina = Number(pg.dataset.pg); seleccion = -1; render(); $('main').scrollTop = 0; return; }
+  const tr = e.target.closest('tr[data-id]');
+  if (tr){
+    seleccion = Number(tr.dataset.i);
+    document.querySelectorAll('tr[aria-selected]').forEach(x => x.removeAttribute('aria-selected'));
+    tr.setAttribute('aria-selected','true');
+    abrirDetalle(tr.dataset.id);
+  }
+});
+
+/* Teclado global */
+addEventListener('keydown', e => {
+  const enCampo = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
+
+  if (e.key === 'Escape'){
+    if (hoja.abierta){ hoja.cerrar(); e.preventDefault(); return; }
+    if (document.activeElement === $('q') && $('q').value){
+      $('q').value = ''; $('btnLimpiarQ').classList.remove('visible'); filtrar(false); e.preventDefault();
+    }
+    return;
+  }
+  if (e.key === '/' && !enCampo){ e.preventDefault(); $('q').focus(); $('q').select(); return; }
+  if (hoja.abierta || enCampo && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+
+  const filas = document.querySelectorAll('tr[data-id]');
+  if (!filas.length) return;
+
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+    e.preventDefault();
+    seleccion = Math.max(0, Math.min(filas.length - 1, seleccion + (e.key === 'ArrowDown' ? 1 : -1)));
+    filas.forEach(f => f.removeAttribute('aria-selected'));
+    const f = filas[seleccion];
+    f.setAttribute('aria-selected','true');
+    f.scrollIntoView({ block:'nearest' });
+  } else if (e.key === 'Enter' && seleccion >= 0){
+    e.preventDefault();
+    abrirDetalle(filas[seleccion].dataset.id);
+  }
+});
+
+/* Caché: tamaño y borrado */
+$('btnCache').addEventListener('click', async () => {
+  let txt = diasEnCache.size + ' día(s) en caché local · ' + memoria.size + ' pedido(s) en memoria';
+  if (navigator.storage && navigator.storage.estimate){
+    try{ const est = await navigator.storage.estimate(); txt += '\nEspacio usado: ' + fmtBytes(est.usage || 0); }catch(e){}
+  }
+  if (confirm(txt + '\n\n¿Vaciar el caché? Los próximos períodos se volverán a descargar.')){
+    await idbVaciar();
+    memoria.clear(); diasEnCache.clear(); diasHidratados.clear(); filtrados = [];
+    rangoCargado = null; $('desde').value = ''; $('hasta').value = ''; marcarChipActivo();
+    aviso('Caché vaciado.');
+    render(); pintarMetrica();
+  }
+});
+
+/* Exportar lo filtrado */
+$('btnExportar').addEventListener('click', () => {
+  if (!filtrados.length){ aviso('No hay resultados para exportar.'); return; }
+  const cab = ['ID','Fecha','Cliente','Estado','Entrega','Medio de pago','Vendedor','Unidades','Lineas','Total','Nota'];
+  const csv = [cab.join(';')].concat(filtrados.map(r => [
+    r.id, r.fecha, r.nombre, r.estado, r.entrega, r.medio, r.vendedor, r.unidades, r.lineas, r.total, (r.nota||'').replace(/[\r\n;]+/g,' ')
+  ].map(v => '"' + String(v == null ? '' : v).replace(/"/g,'""') + '"').join(';'))).join('\r\n');
+
+  const blob = new Blob(['﻿' + csv], { type:'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'pedidos_' + rangoCargado.desde + '_' + rangoCargado.hasta + '.csv';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
+
+/* ───────────────────────── Arranque ───────────────────────── */
+
+(async function inicio(){
+  // Nada de red hasta que Firebase confirme la sesion.
+  const usuario = await sesionLista;
+  $('cuenta').hidden = false;
+  $('cuentaMail').textContent = usuario.email || 'sesion activa';
+  $('btnSalir').addEventListener('click', function(){
+    firebase.auth().signOut().then(function(){ window.location.href = 'login.html'; });
+  });
+
+  // Sólo se abre el caché local para saber qué días ya están guardados:
+  // no se consulta Firebase hasta que el usuario busca algo.
+  idb = await abrirIDB();
+  const dias = await idbLeerDias();
+  dias.forEach(d => diasEnCache.set(d.dia, d.ts));
+  render();
+  pintarMetrica();
+
+  // Si la URL trae ?id= se abre ese pedido directamente (una sola lectura).
+  const urlId = new URLSearchParams(location.search).get('id');
+  if (urlId) abrirDetalle(urlId);
+
+  // En pantallas táctiles no se enfoca solo: evita que salte el teclado.
+  if (!matchMedia('(pointer: coarse)').matches) $('q').focus();
+})();
+</script>
+</body>
+</html>
